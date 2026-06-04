@@ -75,4 +75,4 @@ Ao invés de carregar imagens externas, o projeto usa a **Canvas 2D API** para p
 * **Hyan Victor Cunha Gomes** ( Desenvolvedor )
 * **Yasmin** ( Tester )
 
-*Desenvolvido utilizando WebGL2 e matemática pesada com muito café ☕.*
+*Desenvolvido utilizando WebGL2 e matemática pesada.*
