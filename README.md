@@ -1,10 +1,9 @@
-# Stealth Horror: A Invasão Noturna 🔦🚗
+# Stealth Horror: A Invasão Noturna 
 
 **Universidade Estadual do Ceará (UECE)**  
 **Disciplina:** Computação Gráfica  
 **Professor:** Matheus  
-**Desenvolvedores:** Hyan Victor
-**Tester:** Yasmin  
+**Desenvolvedores:** Hyan  e Yasmin
 
 
 ---
@@ -17,7 +16,7 @@ O objetivo do jogador é invadir uma casa durante a noite, roubar 3 objetos de v
 
 ---
 
-## 📸 Imagens do Jogo
+##  Imagens do Jogo
 
 <div align="center">
   <img src="imagem1.png" alt="Gameplay 1" width="32%">
@@ -30,7 +29,7 @@ O objetivo do jogador é invadir uma casa durante a noite, roubar 3 objetos de v
 
 ---
 
-## 🎮 Mecânicas de Gameplay
+##  Mecânicas de Gameplay
 
 * **Sistema de Stealth (Barulho):** Movimentar-se continuamente gera ruído. Uma barra de tensão no HUD indica o quão perto o Vovô está de acordar. Parar de andar faz a barra esvaziar.
 * **Inventário Limitado:** O jogador só pode carregar um item roubado por vez, forçando-o a fazer um percurso de "vai e vem" entre o interior da casa e o carro estacionado no quintal.
@@ -40,7 +39,7 @@ O objetivo do jogador é invadir uma casa durante a noite, roubar 3 objetos de v
 
 ---
 
-## 💻 Implementações Técnicas (Computação Gráfica)
+##  Implementações Técnicas (Computação Gráfica)
 
 Este projeto foi construído para aplicar conceitos práticos da disciplina de Computação Gráfica. Destaques do desenvolvimento:
 
@@ -54,7 +53,7 @@ Este projeto foi construído para aplicar conceitos práticos da disciplina de C
 
 ---
 
-## 🛠️ Como Executar o Projeto
+##  Como Executar o Projeto
 
 Como o jogo utiliza requisições assíncronas (Fetch API) para carregar as texturas e os modelos 3D (`.obj` e `.mtl`), as políticas de segurança do navegador (CORS) impedem que o arquivo seja aberto diretamente via duplo-clique.
 
@@ -65,7 +64,7 @@ Como o jogo utiliza requisições assíncronas (Fetch API) para carregar as text
 
 ---
 
-## ⌨️ Controles
+##  Controles
 
 * `W, A, S, D` - Movimentação do personagem.
 * `Mouse` - Controle de Câmera (Look around).
