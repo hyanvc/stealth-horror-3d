@@ -7,7 +7,13 @@
         body { margin: 0; overflow: hidden; background: #000; color: white; font-family: 'Courier New', Courier, monospace; }
         canvas { display: block; }
         #crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: rgba(255,255,255,0.5); font-size: 24px; pointer-events: none;}
+        
         #ui { position: absolute; top: 20px; left: 20px; font-size: 20px; text-shadow: 2px 2px 0 #000; pointer-events: none;}
+        
+        #hud-barulho { position: absolute; top: 20px; right: 20px; font-size: 20px; text-shadow: 2px 2px 0 #000; text-align: right; pointer-events: none;}
+        #barulho-bg { width: 200px; height: 20px; background: rgba(0,0,0,0.5); border: 2px solid #fff; margin-top: 5px; float: right; }
+        #barulho-fill { width: 0%; height: 100%; background: #4caf50; transition: background 0.3s, width 0.1s; }
+
         #aviso { position: absolute; bottom: 20%; width: 100%; text-align: center; font-size: 24px; color: #ffeb3b; text-shadow: 2px 2px 0 #000; pointer-events: none; z-index: 5;}
         
         #menu { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; }
@@ -15,20 +21,44 @@
         #menu p { font-size: 20px; max-width: 600px; text-align: center; margin-bottom: 30px;}
         #btn-iniciar { padding: 15px 30px; font-size: 20px; background: #d32f2f; color: white; border: none; cursor: pointer; font-family: inherit; font-weight: bold;}
         #btn-iniciar:hover { background: #f44336; }
+        
+        #menu-pause { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 20; }
+        #menu-pause h1 { color: #fff; font-size: 50px; margin-bottom: 20px; }
+        .btn-pause { padding: 15px 30px; font-size: 20px; border: none; cursor: pointer; font-family: inherit; font-weight: bold; margin: 10px; width: 250px;}
+        #btn-continuar { background: #2196f3; color: white; }
+        #btn-continuar:hover { background: #1976d2; }
+        #btn-reiniciar-pause { background: #d32f2f; color: white; }
+        #btn-reiniciar-pause:hover { background: #b71c1c; }
+
         .hidden { display: none !important; }
     </style>
 </head>
 <body>
     <div id="menu">
         <h1 id="titulo-tela">O ROUBO</h1>
-        <p id="desc-tela">Aproxime-se da casa e aperte [F] para interagir com portas. Lá dentro, roube os 3 móveis com [E] e <b>FUJA PELA PORTA DA FRENTE</b>. Mas cuidado: o velho está dormindo e pode acordar!</p>
+        <p id="desc-tela">Entre na casa, roube 1 objeto de valor por vez e guarde no <b>CARRO DE FUGA</b> lá fora. <br><br>CUIDADO: Se você se mover, faz barulho imediato! O sol nasce em 30 segundos.</p>
         <button id="btn-iniciar">CLIQUE PARA JOGAR</button>
+    </div>
+
+    <div id="menu-pause">
+        <h1>JOGO PAUSADO</h1>
+        <button id="btn-continuar" class="btn-pause">VOLTAR AO JOGO</button>
+        <button id="btn-reiniciar-pause" class="btn-pause">REINICIAR</button>
     </div>
 
     <div id="ui">
         Ambiente: <span id="hud-ambiente">EXTERIOR (DIA)</span><br>
-        Móveis Roubados: <span id="hud-itens">0</span>/3
+        Itens no Carro: <span id="hud-itens">0</span>/3<br>
+        Mãos: <span id="hud-mao">VAZIAS</span><br>
+        Amanhecer em: <span id="hud-tempo" style="color:#ffeb3b">30.0s</span><br>
+        <span style="font-size: 14px; color: #aaa;">[ESC] ou [P] para pausar</span>
     </div>
+
+    <div id="hud-barulho" class="hidden">
+        BARULHO
+        <div id="barulho-bg"><div id="barulho-fill"></div></div>
+    </div>
+
     <div id="crosshair">+</div>
     <div id="aviso" class="hidden">Aperte [AÇÃO]</div>
     <canvas id="c"></canvas>
@@ -39,7 +69,7 @@
         const canvas = document.querySelector("#c");
         const gl = canvas.getContext("webgl2");
 
-        // --- SHADERS MANTIDOS DA SUA ARQUITETURA ---
+        // --- SHADERS ---
         const vs = `#version 300 es
             layout(location=0) in vec3 a_pos;
             layout(location=1) in vec2 a_tex;
@@ -55,7 +85,7 @@
             out vec4 outColor;
             void main() { 
                 vec4 texColor = texture(u_texture, v_tex);
-                if(texColor.a < 0.1) discard;
+                if(texColor.a < 0.1) discard; 
                 vec3 norm = normalize(v_norm);
                 vec3 lightDir = normalize(u_lightPos - v_fragPos);
                 float diff = max(dot(norm, lightDir), 0.0);
@@ -81,7 +111,6 @@
         const lightColLoc = gl.getUniformLocation(program, "u_lightCol");
         const ambLoc = gl.getUniformLocation(program, "u_ambientLvl");
 
-        // --- GEOMETRIA: CUBO ---
         const vertices = new Float32Array([-0.5,-0.5, 0.5, 0,0, 0,0,1, 0.5,-0.5, 0.5, 1,0, 0,0,1, 0.5, 0.5, 0.5, 1,1, 0,0,1, -0.5, 0.5, 0.5, 0,1, 0,0,1, -0.5,-0.5,-0.5, 1,0, 0,0,-1, -0.5, 0.5,-0.5, 1,1, 0,0,-1, 0.5, 0.5,-0.5, 0,1, 0,0,-1, 0.5,-0.5,-0.5, 0,0, 0,0,-1, -0.5, 0.5,-0.5, 0,1, 0,1,0, -0.5, 0.5, 0.5, 0,0, 0,1,0, 0.5, 0.5, 0.5, 1,0, 0,1,0, 0.5, 0.5,-0.5, 1,1, 0,1,0, -0.5,-0.5,-0.5, 1,1, 0,-1,0, 0.5,-0.5,-0.5, 0,1, 0,-1,0, 0.5,-0.5, 0.5, 0,0, 0,-1,0, -0.5,-0.5, 0.5, 1,0, 0,-1,0, 0.5,-0.5,-0.5, 1,0, 1,0,0, 0.5, 0.5,-0.5, 1,1, 1,0,0, 0.5, 0.5, 0.5, 0,1, 1,0,0, 0.5,-0.5, 0.5, 0,0, 1,0,0, -0.5,-0.5,-0.5, 0,0, -1,0,0, -0.5,-0.5, 0.5, 1,0, -1,0,0, -0.5, 0.5, 0.5, 1,1, -1,0,0, -0.5, 0.5,-0.5, 0,1, -1,0,0 ]);
         const indices = new Uint16Array([0,1,2, 0,2,3, 4,5,6, 4,6,7, 8,9,10, 8,10,11, 12,13,14, 12,14,15, 16,17,18, 16,18,19, 20,21,22, 20,22,23]);
 
@@ -92,56 +121,210 @@
         gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 32, 12);
         gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 32, 20);
 
-        // --- TEXTURAS ---
         function criarTextura(tipo) {
             const c = document.createElement('canvas'); c.width = 256; c.height = 256; const ctx = c.getContext('2d');
-            if(tipo === 'parede') { ctx.fillStyle = '#9e9e9e'; ctx.fillRect(0,0,256,256);
+            if(tipo === 'parede') { ctx.fillStyle = '#cfd8dc'; ctx.fillRect(0,0,256,256);
             } else if(tipo === 'parede_ext') { ctx.fillStyle = '#ffcc80'; ctx.fillRect(0,0,256,256);
             } else if(tipo === 'chao') { ctx.fillStyle = '#5d4037'; ctx.fillRect(0,0,256,256); ctx.strokeStyle = '#3e2723'; ctx.lineWidth = 4; for(let y=0; y<256; y+=32) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(256,y); ctx.stroke(); }
             } else if(tipo === 'grama') { ctx.fillStyle = '#2e7d32'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#1b5e20'; for(let i=0; i<100; i++) ctx.fillRect(Math.random()*256, Math.random()*256, 10, 10);
-            } else if(tipo === 'item') { ctx.fillStyle = '#8d6e63'; ctx.fillRect(0,0,256,256); ctx.strokeStyle = '#4e342e'; ctx.lineWidth = 10; ctx.strokeRect(20,20,216,216); ctx.strokeRect(80,80,96,96);
-            } else if(tipo === 'moveis_visuais') { ctx.fillStyle = '#a1887f'; ctx.fillRect(0,0,256,256); ctx.strokeStyle = '#4e342e'; ctx.lineWidth = 6; ctx.strokeRect(0,0,256,256); ctx.beginPath(); ctx.moveTo(0,128); ctx.lineTo(256,128); ctx.stroke();
             } else if(tipo === 'cama') { ctx.fillStyle = '#8d6e63'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#e3f2fd'; ctx.fillRect(10,10,236,200); ctx.fillStyle = '#fff'; ctx.fillRect(40,20,176,60);
             } else if(tipo === 'telhado') { ctx.fillStyle = '#5d4037'; ctx.fillRect(0,0,256,256); ctx.strokeStyle = '#3e2723'; ctx.lineWidth = 2; for(let y=0; y<256; y+=16) { for(let x=0; x<256; x+=32) { ctx.strokeRect(x,y,32,16); } }
             } else if(tipo === 'porta_ext') { ctx.fillStyle = '#8d6e63'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#4e342e'; ctx.fillRect(20,20,216,216); ctx.fillStyle = '#ffd700'; ctx.beginPath(); ctx.arc(220, 128, 10, 0, 2*Math.PI); ctx.fill(); 
             } else if(tipo === 'pele') { ctx.fillStyle = '#ffccaa'; ctx.fillRect(0,0,256,256); 
             } else if(tipo === 'pijama') { ctx.fillStyle = '#b3e5fc'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#0288d1'; for(let y=0; y<256; y+=20) ctx.fillRect(0,y,256,4); 
-            }
+            } else if(tipo === 'tv') { ctx.fillStyle = '#111'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#333'; ctx.fillRect(10,10,236,236); ctx.fillStyle = '#222'; ctx.fillRect(20,20,216,216);
+            } else if(tipo === 'celular') { ctx.fillStyle = '#000'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#2196f3'; ctx.fillRect(20,40,216,176); 
+            } else if(tipo === 'colar') { ctx.clearRect(0,0,256,256); ctx.strokeStyle = '#ffeb3b'; ctx.lineWidth = 15; ctx.beginPath(); ctx.arc(128, 128, 100, 0, Math.PI*2); ctx.stroke(); ctx.fillStyle = '#f44336'; ctx.beginPath(); ctx.arc(128, 228, 30, 0, Math.PI*2); ctx.fill();
+            } else if(tipo === 'sofa') { ctx.fillStyle = '#b71c1c'; ctx.fillRect(0,0,256,256); ctx.strokeStyle = '#7f0000'; ctx.lineWidth = 4; for(let i=0; i<256; i+=32) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,256); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(256,i); ctx.stroke(); }
+            } else if(tipo === 'madeira') { ctx.fillStyle = '#4e342e'; ctx.fillRect(0,0,256,256); ctx.strokeStyle = '#3e2723'; ctx.lineWidth = 2; for(let i=0; i<256; i+=16) { ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(256,i); ctx.stroke(); }
+            } else if(tipo === 'azulejo') { ctx.fillStyle = '#e0f7fa'; ctx.fillRect(0,0,256,256); ctx.strokeStyle = '#b2ebf2'; ctx.lineWidth = 4; for(let i=0; i<=256; i+=64) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,256); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(256,i); ctx.stroke(); }
+            } else if(tipo === 'porcelana') { ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,256,256); 
+            } else if(tipo === 'tapete') { ctx.fillStyle = '#00695c'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#004d40'; ctx.fillRect(20,20,216,216);
+            } else if(tipo === 'carro_fallback') { ctx.fillStyle = '#d32f2f'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#111'; ctx.fillRect(20, 100, 216, 50); ctx.strokeStyle = '#b71c1c'; ctx.lineWidth = 10; ctx.strokeRect(0,0,256,256); 
+            } else if(tipo === 'carro_solido') { ctx.fillStyle = '#d32f2f'; ctx.fillRect(0,0,256,256); }
+
             const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c); gl.generateMipmap(gl.TEXTURE_2D); return tex;
         }
 
-        const texturas = { parede: criarTextura('parede'), parede_ext: criarTextura('parede_ext'), chao: criarTextura('chao'), grama: criarTextura('grama'), item: criarTextura('item'), moveis_visuais: criarTextura('moveis_visuais'), cama: criarTextura('cama'), telhado: criarTextura('telhado'), porta_ext: criarTextura('porta_ext'), pele: criarTextura('pele'), pijama: criarTextura('pijama') };
+        const texturas = { 
+            parede: criarTextura('parede'), parede_ext: criarTextura('parede_ext'), chao: criarTextura('chao'), 
+            grama: criarTextura('grama'), cama: criarTextura('cama'), telhado: criarTextura('telhado'), 
+            porta_ext: criarTextura('porta_ext'), pele: criarTextura('pele'), pijama: criarTextura('pijama'),
+            tv: criarTextura('tv'), celular: criarTextura('celular'), colar: criarTextura('colar'),
+            sofa: criarTextura('sofa'), madeira: criarTextura('madeira'), azulejo: criarTextura('azulejo'),
+            porcelana: criarTextura('porcelana'), tapete: criarTextura('tapete'), 
+            carro_fallback: criarTextura('carro_fallback'), carro_solido: criarTextura('carro_solido')
+        };
+
+        // --- LEITOR DE MATERIAIS (.MTL) E MODELOS (.OBJ) ---
+        let modeloVovoCustomizado = null;
+        let modeloCarroObj = null;
+
+        async function carregarMTL(url) {
+            const materiais = {};
+            try {
+                const response = await fetch(url);
+                if (!response.ok) return materiais;
+                const text = await response.text();
+                
+                let currentMtl = null;
+                const lines = text.split('\n');
+                
+                for (let line of lines) {
+                    line = line.trim();
+                    if (line.startsWith('newmtl ')) {
+                        currentMtl = line.substring(7).trim();
+                        materiais[currentMtl] = { textura: null };
+                    } else if (line.startsWith('map_Kd ') && currentMtl) {
+                        const imgSrc = line.substring(7).trim();
+                        const tex = gl.createTexture();
+                        
+                        gl.bindTexture(gl.TEXTURE_2D, tex);
+                        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([150, 150, 150, 255]));
+                        
+                        const img = new Image();
+                        img.src = imgSrc;
+                        img.onload = () => {
+                            gl.bindTexture(gl.TEXTURE_2D, tex);
+                            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+                            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+                        };
+                        materiais[currentMtl].textura = tex;
+                    }
+                }
+            } catch(e) { console.warn("Erro ao carregar MTL", e); }
+            return materiais;
+        }
+
+        async function carregarModeloOBJ(url) {
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error("Arquivo OBJ não encontrado.");
+                
+                const text = await response.text();
+                const positions = [[0,0,0]], uvs = [[0,0]], normals = [[0,0,0]];
+                
+                let materiaisGlobais = {};
+                let currentMtl = "default";
+                const gruposVertexData = {}; 
+                
+                const lines = text.split('\n');
+                for (let line of lines) {
+                    line = line.trim();
+                    if (line.length === 0 || line.startsWith('#')) continue;
+                    
+                    if (line.startsWith('mtllib ')) {
+                        const mtlFile = line.substring(7).trim();
+                        materiaisGlobais = await carregarMTL(mtlFile);
+                    } 
+                    else if (line.startsWith('usemtl ')) {
+                        currentMtl = line.substring(7).trim();
+                        if (!gruposVertexData[currentMtl]) gruposVertexData[currentMtl] = [];
+                    }
+                    else if (line.startsWith('v ')) {
+                        const parts = line.split(/\s+/);
+                        positions.push([parseFloat(parts[1]), parseFloat(parts[2]), parseFloat(parts[3])]);
+                    } else if (line.startsWith('vt ')) {
+                        const parts = line.split(/\s+/);
+                        let u = parseFloat(parts[1]);
+                        let v = parts.length > 2 ? parseFloat(parts[2]) : 0;
+                        uvs.push([u, 1.0 - v]);
+                    } else if (line.startsWith('vn ')) {
+                        const parts = line.split(/\s+/);
+                        normals.push([parseFloat(parts[1]), parseFloat(parts[2]), parseFloat(parts[3])]);
+                    } else if (line.startsWith('f ')) {
+                        const parts = line.split(/\s+/);
+                        if (!gruposVertexData[currentMtl]) gruposVertexData[currentMtl] = [];
+                        
+                        for (let i = 2; i < parts.length - 1; i++) {
+                            const trinca = [1, i, i + 1];
+                            for (let idx of trinca) {
+                                if (!parts[idx]) continue;
+                                const indices = parts[idx].split('/');
+                                const v = positions[parseInt(indices[0])] || [0,0,0];
+                                const t = indices[1] ? (uvs[parseInt(indices[1])] || [0,0]) : [0,0];
+                                const n = indices[2] ? (normals[parseInt(indices[2])] || [0,1,0]) : [0,1,0];
+                                
+                                gruposVertexData[currentMtl].push(v[0], v[1], v[2], t[0], t[1], n[0], n[1], n[2]);
+                            }
+                        }
+                    }
+                }
+
+                const partesRenderizaveis = [];
+                for (const mat in gruposVertexData) {
+                    const floatArray = new Float32Array(gruposVertexData[mat]);
+                    const vao = gl.createVertexArray();
+                    gl.bindVertexArray(vao);
+                    
+                    const vboObj = gl.createBuffer();
+                    gl.bindBuffer(gl.ARRAY_BUFFER, vboObj);
+                    gl.bufferData(gl.ARRAY_BUFFER, floatArray, gl.STATIC_DRAW);
+                    
+                    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0);
+                    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 32, 12);
+                    gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 32, 20);
+
+                    partesRenderizaveis.push({
+                        vao: vao,
+                        vertexCount: floatArray.length / 8,
+                        textura: materiaisGlobais[mat] ? materiaisGlobais[mat].textura : null
+                    });
+                }
+                return partesRenderizaveis;
+            } catch(e) {
+                return null;
+            }
+        }
+
+        carregarModeloOBJ('vovo.obj').then(modeloArray => { modeloVovoCustomizado = modeloArray; });
+        carregarModeloOBJ('car.obj').then(modeloArray => { modeloCarroObj = modeloArray; });
 
         // --- ARQUITETURA DE LEVEL DESIGN E COLISÃO ---
         const paredes = [
-            { x: -10, z: -10, w: 0.5, d: 26 }, 
-            { x: 10, z: -10, w: 0.5, d: 26 },  
-            { x: 0, z: -22.5, w: 20.5, d: 0.5 }, 
-            { x: -6.125, z: 2.5, w: 8.25, d: 0.5 }, 
-            { x: 6.125, z: 2.5, w: 8.25, d: 0.5 },  
-            { x: -6, z: -7, w: 8, d: 0.5 }, 
-            { x: 6, z: -7, w: 8, d: 0.5 },  
-            { x: -6, z: -15, w: 8, d: 0.5 },
-            { x: 6, z: -15, w: 8, d: 0.5 },
+            { x: -20, z: -20, w: 0.5, d: 50 }, { x: 20, z: -20, w: 0.5, d: 50 }, 
+            { x: 0, z: -45.0, w: 40.5, d: 0.5 }, 
+            { x: -11, z: 5, w: 18, d: 0.5 }, { x: 11, z: 5, w: 18, d: 0.5 },  
+            { x: -11, z: -12, w: 18, d: 0.5 }, { x: 11, z: -12, w: 18, d: 0.5 },  
+            { x: -11, z: -28, w: 18, d: 0.5 }, { x: 11, z: -28, w: 18, d: 0.5 },  
+            { x: 8, z: -17, w: 0.5, d: 10 }, { x: 8, z: -26.5, w: 0.5, d: 3 } 
         ];
 
         const moveisFisica = [
-            { x: 5, z: -2, y: 0.75, w: 4, d: 2, h: 1.5, tex: texturas.moveis_visuais, rot: 0 }, 
-            { x: -5, z: -2, y: 0.5, w: 4, d: 3, h: 1, tex: texturas.moveis_visuais, rot: 0 }, 
-            { x: 0, z: -11, y: 0.6, w: 6, d: 2, h: 1.2, tex: texturas.moveis_visuais, rot: 0 }, 
-            { x: -8, z: -11, y: 1.5, w: 2, d: 6, h: 3, tex: texturas.moveis_visuais, rot: 0 }, 
-            { x: 0, z: -20.5, y: 0.3, w: 3, d: 4, h: 0.6, tex: texturas.cama, rot: 0 }, 
+            // CARRO DE FUGA: Posicionado no Z=28 (atrás do jogador que nasce no Z=20)
+            { id: 'carro_fuga', x: 0, z: 28, y: 0.5, w: 4, d: 8, h: 1.5, tex: texturas.carro_fallback, rot: 0 },
+            
+            { x: 0, z: -42.5, y: 0.3, w: 5, d: 5, h: 0.6, tex: texturas.cama, rot: 0 }, 
+            { x: 16, z: -40, y: 1.5, w: 4, d: 8, h: 3, tex: texturas.madeira, rot: 0 }, 
+            { x: -6, z: -42.5, y: 0.4, w: 2, d: 2, h: 0.8, tex: texturas.madeira, rot: 0 }, 
+            { x: -16, z: -32, y: 0.7, w: 4, d: 2, h: 1.4, tex: texturas.madeira, rot: 0 }, 
+            { x: 16, z: -25, y: 0.4, w: 4, d: 6, h: 0.8, tex: texturas.porcelana, rot: 0 }, 
+            { x: 18, z: -14, y: 0.4, w: 1.5, d: 2, h: 0.8, tex: texturas.porcelana, rot: 0 }, 
+            { x: 18, z: -13.2, y: 1.0, w: 1.5, d: 0.5, h: 1.0, tex: texturas.porcelana, rot: 0 }, 
+            { x: 10, z: -13, y: 0.7, w: 3, d: 1.5, h: 1.4, tex: texturas.porcelana, rot: 0 }, 
+            { x: -10, z: -2, y: 0.5, w: 6, d: 2, h: 1, tex: texturas.sofa, rot: 0 }, 
+            { x: -10, z: -1.2, y: 1.0, w: 6, d: 0.5, h: 1, tex: texturas.sofa, rot: 0 }, 
+            { x: -16, z: -6, y: 0.5, w: 2, d: 6, h: 1, tex: texturas.sofa, rot: 0 }, 
+            { x: -16.8, z: -6, y: 1.0, w: 0.5, d: 6, h: 1, tex: texturas.sofa, rot: 0 }, 
+            { x: -10, z: -11.2, y: 0.5, w: 5, d: 1.5, h: 1, tex: texturas.madeira, rot: 0 }, 
+        ];
+
+        const cenarioDecorativo = [
+            { x: 14, z: -20, y: -0.44, w: 12, d: 16, h: 0.1, tex: texturas.azulejo }, 
+            { x: -12, z: -6, y: -0.44, w: 10, d: 8, h: 0.1, tex: texturas.tapete } 
         ];
 
         let portasInt = [
-            { id: 0, hinge: [-2, 1.75, -7], width: 4, angle: 0, targetAngle: 0, aberta: false }, 
-            { id: 1, hinge: [-2, 1.75, -15], width: 4, angle: 0, targetAngle: 0, aberta: false } 
+            { id: 0, hinge: [-2, 1.75, -12], width: 4, angle: 0, targetAngle: 0, aberta: false }, 
+            { id: 1, hinge: [-2, 1.75, -28], width: 4, angle: 0, targetAngle: 0, aberta: false } 
         ];
 
         let itens = [
-            { pos: [-6, 0.65, -3], roubado: false }, 
-            { pos: [6, 0.65, -11], roubado: false }, 
-            { pos: [7, 0.65, -20], roubado: false }  
+            { pos: [-10, 1.6, -11], scale: [2.0, 1.2, 0.2], tex: texturas.tv, roubado: false }, 
+            { pos: [-6, 0.85, -42.5], scale: [0.3, 0.05, 0.5], tex: texturas.celular, roubado: false }, 
+            { pos: [-16, 1.45, -32], scale: [0.6, 0.05, 0.6], tex: texturas.colar, roubado: false }  
         ];
 
         function colideComParedes(nx, nz) {
@@ -154,62 +337,105 @@
                     if(nx+r > px-dw/2 && nx-r < px+dw/2 && nz+r > pz-0.3 && nz-r < pz+0.3) return true;
                 }
             }
-            if (ambiente === "INTERIOR" && nz > 2.0) return true;
             return false;
         }
 
-        // --- ESTADOS DO JOGO ---
+        // --- ESTADOS DO JOGO E NOVO SISTEMA DE INVENTÁRIO ---
         let estadoJogo = "MENU"; 
         let ambiente = "EXTERIOR"; 
-        let tempoParaAcordar = 10.0;
-        let timerEntrada = 0.0;
         let cutsceneRodando = false;
-        let donoDaCasa = { pos: [0, 0.6, -20.0], speed: 0.05, acordado: false }; 
+        let donoDaCasa = { pos: [0, 0.6, -42.0], speed: 0.06, estado: "DORMINDO" }; 
+        
+        let itemNaMao = false;
+        let itensNoCarro = 0;
+
+        let nivelBarulho = 0.0;
+        const BARULHO_MAX = 100.0;
+        let tempoAmanhecer = 30.0;
+        let lastTime = 0; 
 
         // --- CÂMERA E CONTROLES ---
-        let camPos = vec3.fromValues(0, 1.7, 10); 
+        let camPos = vec3.fromValues(0, 1.7, 20); 
         let camFront = vec3.fromValues(0, 0, -1);
         let camUp = vec3.fromValues(0, 1, 0);
         let yaw = -90.0, pitch = 0.0;
         let keys = {};
         let playerControlavel = true;
         let avisoTemporario = false; 
+        
+        let camPosSalva = vec3.create();
+        let yawSalvo = 0;
+        let pitchSalvo = 0;
 
         const uiAviso = document.getElementById("aviso");
         const uiItens = document.getElementById("hud-itens");
         const uiAmbiente = document.getElementById("hud-ambiente");
+        const uiTempo = document.getElementById("hud-tempo");
 
         function mostrarAvisoTemporario(texto, cor, tempo) {
             uiAviso.innerText = texto; uiAviso.style.color = cor; uiAviso.classList.remove("hidden"); avisoTemporario = true;
             setTimeout(() => { avisoTemporario = false; }, tempo);
         }
 
+        document.addEventListener('pointerlockchange', () => {
+            if (document.pointerLockElement === canvas) {
+                if (estadoJogo === "PAUSADO") {
+                    estadoJogo = "JOGANDO";
+                    document.getElementById("menu-pause").style.display = "none";
+                    lastTime = performance.now(); 
+                }
+            } else {
+                if (estadoJogo === "JOGANDO") {
+                    estadoJogo = "PAUSADO";
+                    document.getElementById("menu-pause").style.display = "flex";
+                    keys = {};
+                }
+            }
+        });
+
+        document.getElementById("btn-continuar").addEventListener("click", () => {
+            try { canvas.requestPointerLock(); } catch(e) {}
+        });
+
+        document.getElementById("btn-reiniciar-pause").addEventListener("click", () => {
+            document.getElementById("menu-pause").style.display = "none";
+            document.getElementById("btn-iniciar").click(); 
+        });
+
         document.getElementById("btn-iniciar").addEventListener("click", () => {
             document.getElementById("menu").classList.add("hidden");
             try { canvas.requestPointerLock(); } catch(e) {}
             
-            estadoJogo = "JOGANDO"; ambiente = "EXTERIOR"; playerControlavel = true; donoDaCasa.acordado = false; cutsceneRodando = false; timerEntrada = 0.0; yaw = -90.0; pitch = 0.0; camPos = vec3.fromValues(0, 1.7, 10); donoDaCasa.pos = [0, 0.6, -20.0]; itens.forEach(i => i.roubado = false); portasInt.forEach(p => {p.aberta=false; p.targetAngle=0; p.angle=0;}); uiAmbiente.innerText = "EXTERIOR (DIA)"; uiAviso.classList.add("hidden"); uiAviso.style.color = "#ffeb3b"; uiItens.innerText = "0"; avisoTemporario = false;
+            estadoJogo = "JOGANDO"; ambiente = "EXTERIOR"; playerControlavel = true; donoDaCasa.estado = "DORMINDO"; cutsceneRodando = false; 
+            nivelBarulho = 0.0; tempoAmanhecer = 30.0; lastTime = performance.now();
+            itemNaMao = false; itensNoCarro = 0; document.getElementById("hud-mao").innerText = "VAZIAS"; document.getElementById("hud-mao").style.color = "#fff";
+            
+            yaw = -90.0; pitch = 0.0; camPos = vec3.fromValues(0, 1.7, 20); donoDaCasa.pos = [0, 0.6, -42.0]; itens.forEach(i => i.roubado = false); portasInt.forEach(p => {p.aberta=false; p.targetAngle=0; p.angle=0;}); uiAmbiente.innerText = "EXTERIOR (DIA)"; uiAviso.classList.add("hidden"); uiAviso.style.color = "#ffeb3b"; uiItens.innerText = "0"; avisoTemporario = false;
         });
 
         document.addEventListener('mousemove', e => {
-            if (document.pointerLockElement === canvas && playerControlavel) {
+            if (document.pointerLockElement === canvas && playerControlavel && estadoJogo === "JOGANDO") {
                 yaw += e.movementX * 0.1; pitch -= e.movementY * 0.1;
                 if (pitch > 89.0) pitch = 89.0; if (pitch < -89.0) pitch = -89.0;
             }
         });
 
-        window.onkeydown = e => { keys[e.key.toLowerCase()] = true; if(estadoJogo === "JOGANDO" && playerControlavel) processarAcaoKeys(e); };
+        window.onkeydown = e => { 
+            let key = e.key.toLowerCase();
+            keys[key] = true; 
+            if (key === 'p' && estadoJogo === "JOGANDO") document.exitPointerLock();
+            if(estadoJogo === "JOGANDO" && playerControlavel) processarAcaoKeys(e); 
+        };
         window.onkeyup = e => keys[e.key.toLowerCase()] = false;
 
         function processarAcaoKeys(e) {
             let key = e.key.toLowerCase();
             if(key === 'f') {
-                if (ambiente === "EXTERIOR" && vec3.distance(camPos, [0, 1.7, 2.5]) < 4.0) {
-                    ambiente = "INTERIOR"; uiAmbiente.innerText = "INTERIOR DA CASA (SHHH!)"; camPos = vec3.fromValues(0, 1.7, 1.5); timerEntrada = performance.now();
+                if (ambiente === "EXTERIOR" && vec3.distance(camPos, [0, 1.7, 5.5]) < 5.0) {
+                    ambiente = "INTERIOR"; uiAmbiente.innerText = "INTERIOR DA CASA (SHHH!)"; camPos = vec3.fromValues(0, 1.7, 4.0);
                 } 
-                else if (ambiente === "INTERIOR" && vec3.distance(camPos, [0, 1.7, 2.5]) < 4.0) { 
-                    if(itens.filter(i => i.roubado).length === itens.length) finalizarJogo("VITORIA");
-                    else mostrarAvisoTemporario("Você precisa roubar os 3 itens primeiro!", "#f44336", 2000);
+                else if (ambiente === "INTERIOR" && vec3.distance(camPos, [0, 1.7, 5.5]) < 5.0) { 
+                    ambiente = "EXTERIOR"; uiAmbiente.innerText = "EXTERIOR (NOITE)"; camPos = vec3.fromValues(0, 1.7, 7.0);
                 }
                 
                 if(ambiente === "INTERIOR") {
@@ -222,108 +448,227 @@
                 }
             }
             
-            if(key === 'e' && ambiente === "INTERIOR") {
-                itens.forEach(item => { 
-                    if(!item.roubado && vec3.distance(camPos, item.pos) < 3.0) { 
-                        item.roubado = true; let roubados = itens.filter(i => i.roubado).length; uiItens.innerText = roubados; 
-                        if(roubados === itens.length) mostrarAvisoTemporario("TUDO ROUBADO! FUJA PELA PORTA DA FRENTE!", "#4caf50", 4000);
-                    } 
-                });
+            if(key === 'e') {
+                if (ambiente === "INTERIOR" && !itemNaMao) {
+                    itens.forEach(item => { 
+                        if(!item.roubado && vec3.distance(camPos, item.pos) < 3.0) { 
+                            item.roubado = true; 
+                            itemNaMao = true;
+                            document.getElementById("hud-mao").innerText = "OCUPADAS (LEVE AO CARRO)";
+                            document.getElementById("hud-mao").style.color = "#ffeb3b";
+                            mostrarAvisoTemporario("Item na mão! Leve para o carro lá fora.", "#4caf50", 3000);
+                        } 
+                    });
+                } else if (ambiente === "EXTERIOR" && itemNaMao) {
+                    // Posição de colisão com o porta-malas ajustada para o carro novo (Z=28)
+                    let posCarro = [0, 1.7, 28];
+                    if (vec3.distance(camPos, posCarro) < 6.0) {
+                        itemNaMao = false;
+                        itensNoCarro++;
+                        document.getElementById("hud-itens").innerText = itensNoCarro;
+                        document.getElementById("hud-mao").innerText = "VAZIAS";
+                        document.getElementById("hud-mao").style.color = "#fff";
+                        
+                        if(itensNoCarro === itens.length) {
+                            finalizarJogo("VITORIA");
+                        } else {
+                            mostrarAvisoTemporario("Item guardado no carro! Faltam " + (itens.length - itensNoCarro) + ".", "#4caf50", 3000);
+                        }
+                    }
+                }
             }
         }
 
         function finalizarJogo(resultado) { 
-            estadoJogo = resultado; document.exitPointerLock(); document.getElementById("menu").classList.remove("hidden"); document.getElementById("btn-iniciar").innerText = "JOGAR NOVAMENTE"; 
+            estadoJogo = resultado; 
+            document.exitPointerLock(); 
+            document.getElementById("menu").classList.remove("hidden"); document.getElementById("btn-iniciar").innerText = "JOGAR NOVAMENTE"; 
+            document.getElementById("hud-barulho").classList.add("hidden");
             if(resultado === "GAMEOVER") { 
                 document.getElementById("titulo-tela").innerText = "GAME OVER"; document.getElementById("desc-tela").innerText = "O velho te pegou!"; document.getElementById("titulo-tela").style.color = "#d32f2f"; 
             } else { 
-                document.getElementById("titulo-tela").innerText = "MISSÃO CUMPRIDA"; document.getElementById("desc-tela").innerText = "Você roubou tudo e fugiu com sucesso!"; document.getElementById("titulo-tela").style.color = "#4caf50"; 
+                document.getElementById("titulo-tela").innerText = "MISSÃO CUMPRIDA"; document.getElementById("desc-tela").innerText = "Você roubou tudo e fugiu no seu carro!"; document.getElementById("titulo-tela").style.color = "#4caf50"; 
             } 
         }
 
-        // --- BLINDAGEM CONTRA O TYPE-ERROR ---
-        function desenhaObjeto(vpMatrix, pos, scale, texturaObj, rotY = 0) {
-            // Previne falha do WebGL se um parametro demorar 1 milissegundo pra entrar na RAM
+        function desenhaObjeto(vpMatrix, pos, scale, texturaObj, rotY = 0, modeloCustomizado = null, rotX = 0, rotZ = 0) {
             if (!vpMatrix || !pos || !scale || pos.length < 3 || scale.length < 3) return; 
-
-            gl.activeTexture(gl.TEXTURE0); 
-            gl.bindTexture(gl.TEXTURE_2D, texturaObj); 
-            if (texLoc !== null) gl.uniform1i(texLoc, 0);
 
             let model = mat4.create(); 
             mat4.translate(model, model, pos); 
             mat4.rotateY(model, model, rotY || 0); 
+            mat4.rotateX(model, model, rotX || 0); 
+            mat4.rotateZ(model, model, rotZ || 0); 
             mat4.scale(model, model, scale);
             
             let mvp = mat4.create(); 
             mat4.multiply(mvp, vpMatrix, model);
 
-            // Evita o erro de INVALID_OPERATION se o shader piscar
             if (matLoc !== null) gl.uniformMatrix4fv(matLoc, false, mvp); 
             if (modelLoc !== null) gl.uniformMatrix4fv(modelLoc, false, model); 
             
-            gl.drawElements(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0);
+            if (modeloCustomizado && Array.isArray(modeloCustomizado)) {
+                for (let parte of modeloCustomizado) {
+                    let texParaUsar = parte.textura ? parte.textura : texturaObj;
+                    
+                    gl.activeTexture(gl.TEXTURE0); 
+                    gl.bindTexture(gl.TEXTURE_2D, texParaUsar); 
+                    if (texLoc !== null) gl.uniform1i(texLoc, 0);
+
+                    gl.bindVertexArray(parte.vao);
+                    gl.drawArrays(gl.TRIANGLES, 0, parte.vertexCount);
+                }
+            } else {
+                gl.activeTexture(gl.TEXTURE0); 
+                gl.bindTexture(gl.TEXTURE_2D, texturaObj); 
+                if (texLoc !== null) gl.uniform1i(texLoc, 0);
+
+                gl.bindVertexArray(vao);
+                gl.drawElements(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0);
+            }
         }
 
-        function desenhaParteCorpo(vp, basePos, localOffset, scale, tex, rotY) {
-            if (!basePos || basePos.length < 3) return; // Segurança extra pra não bugar a matemática
+        function desenhaParteCorpoFallback(vp, basePos, localOffset, scale, tex, rotY) {
+            if (!basePos || basePos.length < 3) return; 
             let gx = basePos[0] + localOffset[0] * Math.cos(rotY) + localOffset[2] * Math.sin(rotY);
             let gz = basePos[2] - localOffset[0] * Math.sin(rotY) + localOffset[2] * Math.cos(rotY);
             let gy = basePos[1] + localOffset[1];
-            desenhaObjeto(vp, [gx, gy, gz], scale, tex, rotY);
+            desenhaObjeto(vp, [gx, gy, gz], scale, tex, rotY); 
         }
 
-        function desenhaVelhinho(vp, pos, acordado, rotY, now) {
-            if (!acordado) {
-                desenhaParteCorpo(vp, pos, [0, 0.4, 0.6], [0.4, 0.4, 0.4], texturas.pele, rotY); 
-                desenhaParteCorpo(vp, pos, [0, 0.35, 0], [0.6, 0.3, 0.8], texturas.pijama, rotY); 
-                desenhaParteCorpo(vp, pos, [0, 0.35, -0.6], [0.5, 0.25, 0.6], texturas.pijama, rotY); 
+        function desenhaVelhinho(vp, pos, estado, rotY, now) {
+            if (modeloVovoCustomizado) {
+                let animY = 0;
+                let tiltZ = 0; 
+                let escalaVovoObj = [0.015, 0.015, 0.015]; 
+                let fixX_EmPe = 0; 
+                let fixX_Deitado = -Math.PI / 2; 
+
+                if (estado === "DORMINDO") {
+                    desenhaObjeto(vp, [pos[0], pos[1] + 0.1, pos[2]], escalaVovoObj, texturas.pijama, Math.PI / 2, modeloVovoCustomizado, fixX_Deitado);
+                } else {
+                    animY = estado === "CAÇANDO" ? Math.abs(Math.sin(now / 150)) * 0.15 : 0;
+                    tiltZ = estado === "CAÇANDO" ? Math.sin(now / 150) * 0.15 : 0;
+                    desenhaObjeto(vp, [pos[0], pos[1] + 0.0 + animY, pos[2]], escalaVovoObj, texturas.pijama, rotY, modeloVovoCustomizado, fixX_EmPe, tiltZ);
+                }
             } else {
-                let walkAnim = Math.sin((now || 0) / 150) * 0.4; // Trata se o frame não entregar o NOW a tempo
-                desenhaParteCorpo(vp, pos, [0, 1.4, 0], [0.4, 0.4, 0.4], texturas.pele, rotY); 
-                desenhaParteCorpo(vp, pos, [0, 0.8, 0], [0.6, 0.8, 0.4], texturas.pijama, rotY); 
-                desenhaParteCorpo(vp, pos, [-0.2, 0.3, walkAnim], [0.3, 0.6, 0.3], texturas.pijama, rotY); 
-                desenhaParteCorpo(vp, pos, [0.2, 0.3, -walkAnim], [0.3, 0.6, 0.3], texturas.pijama, rotY); 
-                desenhaParteCorpo(vp, pos, [-0.4, 1.0, 0.3], [0.2, 0.2, 0.6], texturas.pele, rotY); 
-                desenhaParteCorpo(vp, pos, [0.4, 1.0, 0.3], [0.2, 0.2, 0.6], texturas.pele, rotY); 
+                if (estado === "DORMINDO") {
+                    desenhaParteCorpoFallback(vp, pos, [0, 0.4, 0.6], [0.4, 0.4, 0.4], texturas.pele, rotY); 
+                    desenhaParteCorpoFallback(vp, pos, [0, 0.35, 0], [0.6, 0.3, 0.8], texturas.pijama, rotY); 
+                    desenhaParteCorpoFallback(vp, pos, [0, 0.35, -0.6], [0.5, 0.25, 0.6], texturas.pijama, rotY); 
+                } else {
+                    let walkAnim = estado === "CAÇANDO" ? Math.sin((now || 0) / 150) * 0.4 : 0; 
+                    desenhaParteCorpoFallback(vp, pos, [0, 1.4, 0], [0.4, 0.4, 0.4], texturas.pele, rotY); 
+                    desenhaParteCorpoFallback(vp, pos, [0, 0.8, 0], [0.6, 0.8, 0.4], texturas.pijama, rotY); 
+                    desenhaParteCorpoFallback(vp, pos, [-0.2, 0.3, walkAnim], [0.3, 0.6, 0.3], texturas.pijama, rotY); 
+                    desenhaParteCorpoFallback(vp, pos, [0.2, 0.3, -walkAnim], [0.3, 0.6, 0.3], texturas.pijama, rotY); 
+                    
+                    let bracoAnim = estado === "CAÇANDO" ? 0.3 : 0.0;
+                    desenhaParteCorpoFallback(vp, pos, [-0.4, 1.0, bracoAnim], [0.2, 0.2, 0.6], texturas.pele, rotY); 
+                    desenhaParteCorpoFallback(vp, pos, [0.4, 1.0, bracoAnim], [0.2, 0.2, 0.6], texturas.pele, rotY); 
+                }
             }
         }
 
         function rodarCutsceneAcordar() {
             if(cutsceneRodando) return;
             cutsceneRodando = true; estadoJogo = "CUTSCENE"; playerControlavel = false;
-            let dx = donoDaCasa.pos[0] - camPos[0], dz = donoDaCasa.pos[2] - camPos[2], dy = donoDaCasa.pos[1] - camPos[1];
-            yaw = Math.atan2(dz, dx) * (180 / Math.PI); pitch = Math.atan2(dy, Math.sqrt(dx*dx + dz*dz)) * (180 / Math.PI);
             
-            uiAviso.innerText = "... *Zzz* ... Huh? ... Tem um barulho aí?"; 
+            vec3.copy(camPosSalva, camPos);
+            yawSalvo = yaw;
+            pitchSalvo = pitch;
+            
+            camPos[0] = 0;
+            camPos[1] = 1.5; 
+            camPos[2] = -33; 
+            
+            let dx = donoDaCasa.pos[0] - camPos[0], dz = donoDaCasa.pos[2] - camPos[2], dy = (donoDaCasa.pos[1] + 0.5) - camPos[1];
+            yaw = Math.atan2(dz, dx) * (180 / Math.PI);
+            pitch = Math.atan2(dy, Math.sqrt(dx*dx + dz*dz)) * (180 / Math.PI);
+            
+            uiAviso.innerText = "... *Zzz* ... Huh? ... Quem tá aí?!"; 
             uiAviso.style.color = "#fff"; 
             uiAviso.classList.remove("hidden");
+            document.getElementById("hud-barulho").classList.add("hidden");
 
             setTimeout(() => { 
+                donoDaCasa.estado = "ACORDANDO"; 
                 donoDaCasa.pos[1] = 0.0; 
-                donoDaCasa.pos[2] = -17.5; 
+                donoDaCasa.pos[2] = -39.5; 
                 uiAviso.innerText = "LADRÃO! EU VOU TE PEGAR!"; 
                 uiAviso.style.color = "#f44336"; 
             }, 3000);
 
             setTimeout(() => { 
                 uiAviso.classList.add("hidden"); 
-                donoDaCasa.acordado = true; 
+                donoDaCasa.estado = "CAÇANDO"; 
                 playerControlavel = true; 
                 estadoJogo = "JOGANDO"; 
+                
+                vec3.copy(camPos, camPosSalva);
+                yaw = yawSalvo;
+                pitch = pitchSalvo;
             }, 6000);
         }
 
         function render(now) {
             requestAnimationFrame(render);
-            
-            if (estadoJogo === "JOGANDO") {
-                if (ambiente === "INTERIOR" && !donoDaCasa.acordado && !cutsceneRodando && ((now - timerEntrada)/1000 > tempoParaAcordar)) rodarCutsceneAcordar();
 
-                if (ambiente === "INTERIOR" && donoDaCasa.acordado) {
+            let dt = (now - lastTime) / 1000;
+            lastTime = now;
+            if(dt > 0.1) dt = 0.1; 
+            
+            if (estadoJogo === "PAUSADO") return; 
+
+            if (estadoJogo === "JOGANDO") {
+                
+                if (donoDaCasa.estado === "DORMINDO" && !cutsceneRodando) {
+                    tempoAmanhecer -= dt;
+                    if (tempoAmanhecer < 0) tempoAmanhecer = 0;
+                    uiTempo.innerText = tempoAmanhecer.toFixed(1) + "s";
+                    
+                    if (tempoAmanhecer <= 0) {
+                        rodarCutsceneAcordar();
+                    }
+                }
+
+                let hudBarulho = document.getElementById("hud-barulho");
+                if (ambiente === "INTERIOR" && donoDaCasa.estado === "DORMINDO" && !cutsceneRodando) {
+                    hudBarulho.classList.remove("hidden");
+                    
+                    let movendo = keys['w'] || keys['a'] || keys['s'] || keys['d'];
+                    
+                    if (movendo) {
+                        nivelBarulho += 40.0 * dt; 
+                    } else {
+                        nivelBarulho -= 20.0 * dt; 
+                    }
+
+                    if(nivelBarulho < 0) nivelBarulho = 0;
+                    if(nivelBarulho > BARULHO_MAX) nivelBarulho = BARULHO_MAX;
+
+                    let barFill = document.getElementById("barulho-fill");
+                    barFill.style.width = nivelBarulho + "%";
+                    if (nivelBarulho > 75) barFill.style.background = "#f44336"; 
+                    else if (nivelBarulho > 40) barFill.style.background = "#ffeb3b"; 
+                    else barFill.style.background = "#4caf50"; 
+
+                    if (nivelBarulho >= BARULHO_MAX) {
+                        rodarCutsceneAcordar();
+                    }
+                } else {
+                    hudBarulho.classList.add("hidden"); 
+                }
+
+                if (donoDaCasa.estado === "CAÇANDO") {
                     let alvoX = camPos[0]; let alvoZ = camPos[2];
-                    if (donoDaCasa.pos[2] < -15.5 && camPos[2] > -14.5) { alvoX = 0; alvoZ = -14; }
-                    else if (donoDaCasa.pos[2] < -7.5 && camPos[2] > -6.5) { alvoX = 0; alvoZ = -6; }
+                    
+                    if (ambiente === "EXTERIOR" || camPos[2] > 4.5) {
+                        alvoX = 0; alvoZ = 4.0; 
+                    } else {
+                        if (donoDaCasa.pos[2] < -28.5 && camPos[2] > -27.5) { alvoX = 0; alvoZ = -27; }
+                        else if (donoDaCasa.pos[2] < -12.5 && camPos[2] > -11.5) { alvoX = 0; alvoZ = -11; }
+                    }
 
                     let dirX = alvoX - donoDaCasa.pos[0], dirZ = alvoZ - donoDaCasa.pos[2];
                     let dist = Math.sqrt(dirX * dirX + dirZ * dirZ);
@@ -344,7 +689,7 @@
                     });
 
                     let distRealPlayer = Math.sqrt(Math.pow(camPos[0]-donoDaCasa.pos[0], 2) + Math.pow(camPos[2]-donoDaCasa.pos[2], 2));
-                    if(distRealPlayer < 1.3) finalizarJogo("GAMEOVER");
+                    if(ambiente === "INTERIOR" && distRealPlayer < 1.3) finalizarJogo("GAMEOVER");
                 }
 
                 let front = vec3.create(); front[0] = Math.cos(glMatrix.toRadian(yaw)) * Math.cos(glMatrix.toRadian(pitch)); front[1] = Math.sin(glMatrix.toRadian(pitch)); front[2] = Math.sin(glMatrix.toRadian(yaw)) * Math.cos(glMatrix.toRadian(pitch)); vec3.normalize(camFront, front);
@@ -363,27 +708,28 @@
                 }
             } else if (estadoJogo === "CUTSCENE") {
                 vec3.set(camFront, Math.cos(glMatrix.toRadian(yaw)) * Math.cos(glMatrix.toRadian(pitch)), Math.sin(glMatrix.toRadian(pitch)), Math.sin(glMatrix.toRadian(yaw)) * Math.cos(glMatrix.toRadian(pitch))); vec3.normalize(camFront, camFront);
-            } else { return; }
+            } else if (estadoJogo !== "PAUSADO") { return; }
 
             let exibirDicaFixa = false;
             if(estadoJogo === "JOGANDO" && playerControlavel && !avisoTemporario) {
                 let pertoPortaInterna = portasInt.some(p => vec3.distance(camPos, [p.hinge[0] + p.width/2, 1.7, p.hinge[2]]) < 4.0);
-                if(ambiente === "EXTERIOR" && vec3.distance(camPos, [0, 1.7, 2.5]) < 4.0) { 
-                    uiAviso.innerText = "Aperte [F] para arrombar e entrar"; uiAviso.style.color="#ffeb3b"; uiAviso.classList.remove("hidden"); exibirDicaFixa = true;
-                } else if (ambiente === "INTERIOR" && vec3.distance(camPos, [0, 1.7, 2.5]) < 4.0 && itens.filter(i => i.roubado).length === itens.length) { 
-                    uiAviso.innerText = "Aperte [F] para escapar com os itens!"; uiAviso.style.color="#4caf50"; uiAviso.classList.remove("hidden"); exibirDicaFixa = true;
+                if(ambiente === "EXTERIOR" && vec3.distance(camPos, [0, 1.7, 5.5]) < 5.0) { 
+                    uiAviso.innerText = "Aperte [F] para entrar na casa"; uiAviso.style.color="#ffeb3b"; uiAviso.classList.remove("hidden"); exibirDicaFixa = true;
+                } else if (ambiente === "INTERIOR" && vec3.distance(camPos, [0, 1.7, 5.5]) < 5.0) { 
+                    uiAviso.innerText = "Aperte [F] para sair para a rua"; uiAviso.style.color="#ffeb3b"; uiAviso.classList.remove("hidden"); exibirDicaFixa = true;
                 } else if (ambiente === "INTERIOR" && pertoPortaInterna) {
                     uiAviso.innerText = "Aperte [F] para abrir/fechar a porta"; uiAviso.style.color="#ffeb3b"; uiAviso.classList.remove("hidden"); exibirDicaFixa = true;
-                } else if (ambiente === "INTERIOR" && itens.some(i => !i.roubado && vec3.distance(camPos, i.pos) < 3.0)) { 
-                    uiAviso.innerText = "Aperte [E] para roubar o caixote"; uiAviso.style.color="#ffeb3b"; uiAviso.classList.remove("hidden"); exibirDicaFixa = true;
-                } 
+                } else if (ambiente === "INTERIOR" && !itemNaMao && itens.some(i => !i.roubado && vec3.distance(camPos, i.pos) < 3.0)) { 
+                    uiAviso.innerText = "Aperte [E] para pegar o item"; uiAviso.style.color="#ffeb3b"; uiAviso.classList.remove("hidden"); exibirDicaFixa = true;
+                } else if (ambiente === "EXTERIOR" && itemNaMao && vec3.distance(camPos, [0, 1.7, 28]) < 6.0) {
+                    uiAviso.innerText = "Aperte [E] para guardar no carro"; uiAviso.style.color="#4caf50"; uiAviso.classList.remove("hidden"); exibirDicaFixa = true;
+                }
             }
             
             if (!exibirDicaFixa && !avisoTemporario && estadoJogo !== "CUTSCENE") {
                 uiAviso.classList.add("hidden");
             }
 
-            // --- RENDER COM LUZ FIXA E CLARA ---
             canvas.width = window.innerWidth || 300; 
             canvas.height = window.innerHeight || 150; 
             gl.viewport(0, 0, canvas.width, canvas.height);
@@ -392,12 +738,12 @@
                 gl.clearColor(0.5, 0.7, 0.9, 1.0); 
                 if (ambLoc !== null) gl.uniform1f(ambLoc, 0.85); 
                 if (lightColLoc !== null) gl.uniform3fv(lightColLoc, [1,1,1]); 
-                if (lightLoc !== null) gl.uniform3fv(lightLoc, [10, 20, 10]);
+                if (lightLoc !== null) gl.uniform3fv(lightLoc, [20, 40, 20]); 
             } else { 
                 gl.clearColor(0.05, 0.05, 0.05, 1.0); 
-                if (ambLoc !== null) gl.uniform1f(ambLoc, donoDaCasa.acordado ? 0.6 : 0.5); 
-                if (lightColLoc !== null) gl.uniform3fv(lightColLoc, donoDaCasa.acordado ? [1.0, 0.4, 0.4] : [1.0, 1.0, 0.9]); 
-                if (lightLoc !== null) gl.uniform3fv(lightLoc, [0, 4.0, -10]); 
+                if (ambLoc !== null) gl.uniform1f(ambLoc, donoDaCasa.estado === "DORMINDO" ? 0.5 : 0.6); 
+                if (lightColLoc !== null) gl.uniform3fv(lightColLoc, donoDaCasa.estado !== "DORMINDO" ? [1.0, 0.4, 0.4] : [1.0, 1.0, 0.9]); 
+                if (lightLoc !== null) gl.uniform3fv(lightLoc, [0, 15.0, -20]); 
             }
             
             gl.enable(gl.DEPTH_TEST); 
@@ -415,20 +761,20 @@
             const vp = mat4.create(); 
             mat4.multiply(vp, proj, view);
 
-            desenhaObjeto(vp, [0, -0.5, 5], [120, 1, 60], texturas.grama);
-            desenhaObjeto(vp, [0, 5.5, -10], [20.5, 1, 26], texturas.telhado);
+            desenhaObjeto(vp, [0, -0.5, 10], [200, 1, 100], texturas.grama);
+            desenhaObjeto(vp, [0, 5.5, -20], [40.5, 1, 50], texturas.telhado);
 
             if (ambiente === "EXTERIOR") {
                 paredes.forEach(p => desenhaObjeto(vp, [p.x, 2.5, p.z], [p.w, 5, p.d], texturas.parede_ext));
-                desenhaObjeto(vp, [0, 1.75, 2.55], [4, 3.5, 0.1], texturas.porta_ext); 
-                desenhaObjeto(vp, [0, 0.1, 3.5], [3, 0.1, 2], texturas.moveis_visuais, Math.PI/2);
+                desenhaObjeto(vp, [0, 1.75, 5.05], [4, 3.5, 0.1], texturas.porta_ext); 
+                desenhaObjeto(vp, [0, 0.1, 6.0], [3, 0.1, 2], texturas.madeira, Math.PI/2);
             } else {
-                desenhaObjeto(vp, [0, -0.45, -10], [20.5, 1, 26], texturas.chao); 
-                desenhaObjeto(vp, [0, 5, -10], [20.5, 1, 26], texturas.parede); 
+                desenhaObjeto(vp, [0, -0.45, -20], [40.5, 1, 50], texturas.chao); 
+                desenhaObjeto(vp, [0, 5, -20], [40.5, 1, 50], texturas.parede); 
                 
+                cenarioDecorativo.forEach(c => desenhaObjeto(vp, [c.x, c.y, c.z], [c.w, c.h, c.d], c.tex));
                 paredes.forEach(p => desenhaObjeto(vp, [p.x, 2.5, p.z], [p.w, 5, p.d], texturas.parede));
-                moveisFisica.forEach(m => desenhaObjeto(vp, [m.x, m.y, m.z], [m.w, m.h, m.d], m.tex || texturas.moveis_visuais, m.rot));
-
+                
                 portasInt.forEach(p => {
                     p.angle += (p.targetAngle - p.angle) * 0.1; 
                     let cx = p.hinge[0] + Math.cos(p.angle) * (p.width/2);
@@ -436,13 +782,30 @@
                     desenhaObjeto(vp, [cx, p.hinge[1], cz], [p.width, 3.5, 0.2], texturas.porta_ext, p.angle);
                 });
 
-                desenhaObjeto(vp, [0, 1.75, 2.45], [4, 3.5, 0.1], texturas.porta_ext); 
+                desenhaObjeto(vp, [0, 1.75, 4.95], [4, 3.5, 0.1], texturas.porta_ext); 
 
-                let rotYDono = donoDaCasa.acordado ? yaw * (Math.PI/180) + Math.PI : Math.PI / 2;
-                desenhaVelhinho(vp, donoDaCasa.pos, donoDaCasa.acordado, rotYDono, now);
-
-                itens.forEach(item => { if(!item.roubado) desenhaObjeto(vp, item.pos, [1.3, 1.3, 1.3], texturas.item); });
+                let rotYDono = Math.PI / 2; 
+                if (donoDaCasa.estado !== "DORMINDO") {
+                    rotYDono = Math.atan2(camPos[0] - donoDaCasa.pos[0], camPos[2] - donoDaCasa.pos[2]);
+                }
+                desenhaVelhinho(vp, donoDaCasa.pos, donoDaCasa.estado, rotYDono, now);
             }
+
+            // RENDENRIZAÇÃO DOS MÓVEIS E CARRO
+            moveisFisica.forEach(m => {
+                if (m.id === 'carro_fuga' && modeloCarroObj) {
+                    // --- AJUSTE O CARRO AQUI ---
+                    let escalaCarroObj = [0.4, 0.4, 0.4]; // Escala ajustada de 1.5 para 0.4
+                    let fixX_Carro = 0; 
+                    let rotY_Carro = -Math.PI / 2; // Virado de ré para a casa (-90 graus)
+                    
+                    desenhaObjeto(vp, [m.x, m.y - 0.5, m.z], escalaCarroObj, texturas.carro_solido, rotY_Carro, modeloCarroObj, fixX_Carro);
+                } else {
+                    desenhaObjeto(vp, [m.x, m.y, m.z], [m.w, m.h, m.d], m.tex, m.rot);
+                }
+            });
+
+            itens.forEach(item => { if(!item.roubado) desenhaObjeto(vp, item.pos, item.scale, item.tex); });
         }
         requestAnimationFrame(render);
     </script>
