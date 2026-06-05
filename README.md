@@ -42,7 +42,7 @@ O objetivo do jogador é invadir uma casa durante a noite, roubar 3 objetos de v
 
 ##  Mapeamento de Requisitos
 
-Este projeto foi construído garantindo o atendimento integral de todos os critérios estabelecidos para a categoria **Jogo 3D**, bem como as restrições anotadas em sala de aula. Abaixo está o detalhamento técnico de onde e como cada requisito foi implementado no código-fonte (`teste.html`).
+Este projeto foi construído garantindo o atendimento integral de todos os critérios estabelecidos para a categoria **Jogo 3D**, bem como as restrições anotadas em sala de aula. Abaixo está o detalhamento técnico de onde e como cada requisito foi implementado no código-fonte (`ORoubo.html`).
 
 ##  Conformidade com os Requisitos do Edital
 
