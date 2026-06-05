@@ -30,13 +30,16 @@
         #btn-reiniciar-pause { background: #d32f2f; color: white; }
         #btn-reiniciar-pause:hover { background: #b71c1c; }
 
+        #tela-preta-intro { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: black; display: flex; align-items: center; justify-content: center; z-index: 15; flex-direction: column; }
+        #texto-intro { color: #fff; font-size: 30px; max-width: 800px; text-align: center; opacity: 0; transition: opacity 2s; text-shadow: none; }
+
         .hidden { display: none !important; }
     </style>
 </head>
 <body>
     <div id="menu">
         <h1 id="titulo-tela">O ROUBO</h1>
-        <p id="desc-tela">Entre na casa, roube 1 objeto de valor por vez e guarde no <b>CARRO DE FUGA</b> lá fora. <br><br>CUIDADO: Se você se mover, faz barulho imediato! O sol nasce em 30 segundos.</p>
+        <p id="desc-tela">Entre na casa, roube 1 objeto de valor por vez e guarde no <b>CARRO DE FUGA</b> lá fora. <br><br>CUIDADO: Se você se mover, faz barulho imediato! O sol nasce em 70 segundos.</p>
         <button id="btn-iniciar">CLIQUE PARA JOGAR</button>
     </div>
 
@@ -46,11 +49,15 @@
         <button id="btn-reiniciar-pause" class="btn-pause">REINICIAR</button>
     </div>
 
+    <div id="tela-preta-intro" class="hidden">
+        <h2 id="texto-intro">Ele foi responsável por roubar 3 itens da sua casa, roube de volta!<br><br>Mas não deixe ele acordar!</h2>
+    </div>
+
     <div id="ui">
         Ambiente: <span id="hud-ambiente">EXTERIOR (DIA)</span><br>
         Itens no Carro: <span id="hud-itens">0</span>/3<br>
         Mãos: <span id="hud-mao">VAZIAS</span><br>
-        Amanhecer em: <span id="hud-tempo" style="color:#ffeb3b">30.0s</span><br>
+        Amanhecer em: <span id="hud-tempo" style="color:#ffeb3b">70.0s</span><br>
         <span style="font-size: 14px; color: #aaa;">[ESC] ou [P] para pausar</span>
     </div>
 
@@ -320,9 +327,7 @@
         ];
 
         const moveisFisica = [
-            // CARRO DE FUGA: Posicionado no Z=28 (atrás do jogador que nasce no Z=20)
             { id: 'carro_fuga', x: 0, z: 28, y: 0.5, w: 4, d: 8, h: 1.5, tex: texturas.carro_fallback, rot: 0 },
-            
             { x: 0, z: -42.5, y: 0.3, w: 5, d: 5, h: 0.6, tex: texturas.cama, rot: 0 }, 
             { x: 16, z: -40, y: 1.5, w: 4, d: 8, h: 3, tex: texturas.madeira, rot: 0 }, 
             { x: -6, z: -42.5, y: 0.4, w: 2, d: 2, h: 0.8, tex: texturas.madeira, rot: 0 }, 
@@ -373,12 +378,15 @@
         let cutsceneRodando = false;
         let donoDaCasa = { pos: [0, 0.6, -42.0], speed: 0.06, estado: "DORMINDO" }; 
         
+        let introFase = 0;
+        let estadoAnterior = "MENU";
+
         let itemNaMao = false;
         let itensNoCarro = 0;
 
         let nivelBarulho = 0.0;
         const BARULHO_MAX = 100.0;
-        let tempoAmanhecer = 30.0;
+        let tempoAmanhecer = 70.0;
         let lastTime = 0; 
 
         // --- CÂMERA E CONTROLES ---
@@ -407,12 +415,13 @@
         document.addEventListener('pointerlockchange', () => {
             if (document.pointerLockElement === canvas) {
                 if (estadoJogo === "PAUSADO") {
-                    estadoJogo = "JOGANDO";
+                    estadoJogo = estadoAnterior; 
                     document.getElementById("menu-pause").style.display = "none";
                     lastTime = performance.now(); 
                 }
             } else {
-                if (estadoJogo === "JOGANDO") {
+                if (estadoJogo === "JOGANDO" || estadoJogo === "INTRO" || estadoJogo === "CUTSCENE") {
+                    estadoAnterior = estadoJogo;
                     estadoJogo = "PAUSADO";
                     document.getElementById("menu-pause").style.display = "flex";
                     keys = {};
@@ -432,13 +441,44 @@
         document.getElementById("btn-iniciar").addEventListener("click", () => {
             document.getElementById("menu").classList.add("hidden");
             try { canvas.requestPointerLock(); } catch(e) {}
+            iniciarIntro();
+        });
+
+        function iniciarIntro() {
+            estadoJogo = "INTRO";
+            introFase = 0;
+            playerControlavel = false;
+            ambiente = "INTERIOR"; 
             
+            // Câmera inicia na sala de estar, como um acompanhamento
+            camPos = vec3.fromValues(6, 2.5, 3); 
+            yaw = -135.0; pitch = -15.0; 
+            
+            // Velho começa dentro da casa (Sala)
+            donoDaCasa.pos = [0, 0.0, -2.0]; 
+            donoDaCasa.estado = "CAÇANDO"; // Usa a animação de andar
+            
+            // Reseta todas as portas para fechadas
+            portasInt.forEach(p => { p.aberta = false; p.targetAngle = 0; p.angle = 0; });
+            
+            document.getElementById("ui").classList.add("hidden");
+            document.getElementById("crosshair").classList.add("hidden");
+            document.getElementById("tela-preta-intro").classList.add("hidden");
+            
+            lastTime = performance.now();
+        }
+
+        function iniciarJogoReal() {
             estadoJogo = "JOGANDO"; ambiente = "EXTERIOR"; playerControlavel = true; donoDaCasa.estado = "DORMINDO"; cutsceneRodando = false; 
-            nivelBarulho = 0.0; tempoAmanhecer = 30.0; lastTime = performance.now();
+            nivelBarulho = 0.0; tempoAmanhecer = 70.0; lastTime = performance.now();
             itemNaMao = false; itensNoCarro = 0; document.getElementById("hud-mao").innerText = "VAZIAS"; document.getElementById("hud-mao").style.color = "#fff";
             
             yaw = -90.0; pitch = 0.0; camPos = vec3.fromValues(0, 1.7, 20); donoDaCasa.pos = [0, 0.6, -42.0]; itens.forEach(i => i.roubado = false); portasInt.forEach(p => {p.aberta=false; p.targetAngle=0; p.angle=0;}); uiAmbiente.innerText = "EXTERIOR (DIA)"; uiAviso.classList.add("hidden"); uiAviso.style.color = "#ffeb3b"; uiItens.innerText = "0"; avisoTemporario = false;
-        });
+
+            document.getElementById("ui").classList.remove("hidden");
+            document.getElementById("crosshair").classList.remove("hidden");
+            document.getElementById("tela-preta-intro").classList.add("hidden");
+        }
 
         document.addEventListener('mousemove', e => {
             if (document.pointerLockElement === canvas && playerControlavel && estadoJogo === "JOGANDO") {
@@ -450,7 +490,7 @@
         window.onkeydown = e => { 
             let key = e.key.toLowerCase();
             keys[key] = true; 
-            if (key === 'p' && estadoJogo === "JOGANDO") document.exitPointerLock();
+            if (key === 'p' && (estadoJogo === "JOGANDO" || estadoJogo === "INTRO")) document.exitPointerLock();
             if(estadoJogo === "JOGANDO" && playerControlavel) processarAcaoKeys(e); 
         };
         window.onkeyup = e => keys[e.key.toLowerCase()] = false;
@@ -506,6 +546,7 @@
         }
 
         function finalizarJogo(resultado) { 
+            estadoAnterior = resultado;
             estadoJogo = resultado; 
             document.exitPointerLock(); 
             document.getElementById("menu").classList.remove("hidden"); document.getElementById("btn-iniciar").innerText = "JOGAR NOVAMENTE"; 
@@ -771,6 +812,79 @@
                 }
             } else if (estadoJogo === "CUTSCENE") {
                 vec3.set(camFront, Math.cos(glMatrix.toRadian(yaw)) * Math.cos(glMatrix.toRadian(pitch)), Math.sin(glMatrix.toRadian(pitch)), Math.sin(glMatrix.toRadian(yaw)) * Math.cos(glMatrix.toRadian(pitch))); vec3.normalize(camFront, camFront);
+            } else if (estadoJogo === "INTRO") {
+                
+                // Camera em Tracking Shot: Segue o velhinho suavemente na diagonal de cima
+                camPos[0] = 6.0;
+                camPos[1] = 2.5;
+                camPos[2] += (donoDaCasa.pos[2] + 8.0 - camPos[2]) * 0.05; // Interpolação suave acompanhando o eixo Z
+                yaw = -135.0; 
+                pitch = -15.0;
+
+                let velWalking = 3.5 * dt;
+
+                // Fases da Intro
+                if (introFase === 0) {
+                    // Anda até a porta da sala
+                    if (donoDaCasa.pos[2] > -10.5) {
+                        donoDaCasa.pos[2] -= velWalking; 
+                    } else {
+                        introFase = 1;
+                        portasInt[0].aberta = true;
+                        portasInt[0].targetAngle = Math.PI / 2;
+                        setTimeout(() => { introFase = 2; }, 600); // Aguarda abrir
+                    }
+                } else if (introFase === 2) {
+                    // Atravessa porta da sala
+                    if (donoDaCasa.pos[2] > -14.5) {
+                        donoDaCasa.pos[2] -= velWalking;
+                    } else {
+                        introFase = 3;
+                        portasInt[0].aberta = false; // Fecha a porta da sala
+                        portasInt[0].targetAngle = 0;
+                    }
+                } else if (introFase === 3) {
+                    // Anda até a porta do quarto
+                    if (donoDaCasa.pos[2] > -26.5) {
+                        donoDaCasa.pos[2] -= velWalking;
+                    } else {
+                        introFase = 4;
+                        portasInt[1].aberta = true;
+                        portasInt[1].targetAngle = Math.PI / 2;
+                        setTimeout(() => { introFase = 5; }, 600); // Aguarda abrir
+                    }
+                } else if (introFase === 5) {
+                    // Atravessa porta do quarto
+                    if (donoDaCasa.pos[2] > -30.5) {
+                        donoDaCasa.pos[2] -= velWalking;
+                    } else {
+                        introFase = 6;
+                        portasInt[1].aberta = false; // Fecha a porta do quarto
+                        portasInt[1].targetAngle = 0;
+                    }
+                } else if (introFase === 6) {
+                    // Anda até deitar na cama
+                    if (donoDaCasa.pos[2] > -42.0) {
+                        donoDaCasa.pos[2] -= velWalking;
+                    } else {
+                        introFase = 7;
+                        donoDaCasa.estado = "DORMINDO";
+                        donoDaCasa.pos = [0, 0.6, -42.0]; 
+                        
+                        setTimeout(() => {
+                            document.getElementById("tela-preta-intro").classList.remove("hidden");
+                            setTimeout(() => { document.getElementById("texto-intro").style.opacity = "1"; }, 500);
+                            
+                            setTimeout(() => {
+                                document.getElementById("texto-intro").style.opacity = "0";
+                                setTimeout(iniciarJogoReal, 1500);
+                            }, 5000); 
+                        }, 1000); 
+                    }
+                }
+
+                // Trava a câmera na lógica do tracking
+                vec3.set(camFront, Math.cos(glMatrix.toRadian(yaw)) * Math.cos(glMatrix.toRadian(pitch)), Math.sin(glMatrix.toRadian(pitch)), Math.sin(glMatrix.toRadian(yaw)) * Math.cos(glMatrix.toRadian(pitch))); vec3.normalize(camFront, camFront);
             } else if (estadoJogo !== "PAUSADO") { return; }
 
             let exibirDicaFixa = false;
@@ -856,7 +970,9 @@
                 desenhaObjeto(vp, [0, 1.75, 4.95], [4, 3.5, 0.1], texturas.porta_ext); 
 
                 let rotYDono = Math.PI / 2; 
-                if (donoDaCasa.estado !== "DORMINDO") {
+                if (estadoJogo === "INTRO" && introFase < 7) {
+                    rotYDono = Math.PI; // Força ele a olhar pra frente durante toda a caminhada
+                } else if (donoDaCasa.estado !== "DORMINDO") {
                     rotYDono = Math.atan2(camPos[0] - donoDaCasa.pos[0], camPos[2] - donoDaCasa.pos[2]);
                 }
                 desenhaVelhinho(vp, donoDaCasa.pos, donoDaCasa.estado, rotYDono, now);
