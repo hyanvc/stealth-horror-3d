@@ -390,6 +390,9 @@
             { id: 1, hinge: [-2, 1.75, -28], width: 4, angle: 0, targetAngle: 0, aberta: false } 
         ];
 
+        // Animação da Porta da Frente
+        let portaExt = { angle: 0, targetAngle: 0 };
+
         // Antigos roubos viraram cenário estático
         let objetosEstaticos = [
             { pos: [-10, 1.6, -11], scale: [2.0, 1.2, 0.2], tex: texturas.tv }, 
@@ -398,15 +401,15 @@
         ];
 
         // Novo Mecanismo do Cofre
-        let cofre = { pos: [-8, 1.5, -44.8], angle: 0, targetAngle: 0, aberto: false };
+        let cofre = { pos: [-9.5, 1.5, -44.8], angle: 0, targetAngle: 0, aberto: false };
         let tentativasSenha = 0;
         let digitandoSenha = false;
 
         // Herança dentro do Cofre
         let itens = [
-            { pos: [-8.5, 1.0, -44.9], scale: [0.8, 0.5, 0.8], tex: texturas.ouro, roubado: false }, 
-            { pos: [-7.5, 1.0, -44.9], scale: [0.8, 0.5, 0.8], tex: texturas.ouro, roubado: false }, 
-            { pos: [-8.0, 1.6, -44.9], scale: [0.8, 0.5, 0.8], tex: texturas.ouro, roubado: false }  
+            { pos: [-10.0, 1.0, -44.9], scale: [0.8, 0.5, 0.8], tex: texturas.ouro, roubado: false }, 
+            { pos: [-9.0, 1.0, -44.9], scale: [0.8, 0.5, 0.8], tex: texturas.ouro, roubado: false }, 
+            { pos: [-9.5, 1.6, -44.9], scale: [0.8, 0.5, 0.8], tex: texturas.ouro, roubado: false }  
         ];
 
         // Pistas espalhadas pela casa
@@ -436,6 +439,7 @@
         let cutsceneRodando = false;
         let donoDaCasa = { pos: [0, 0.6, -42.0], speed: 0.06, estado: "DORMINDO" }; 
         let posPolicia = [0, 0.0, 12.0]; 
+        let animacaoPoliciaAndando = false;
 
         let introFase = 0;
         let estadoAnterior = "MENU";
@@ -536,14 +540,20 @@
             estadoJogo = "INTRO";
             introFase = 0;
             playerControlavel = false;
-            ambiente = "INTERIOR"; 
+            ambiente = "EXTERIOR"; 
             timeoutsIntro.forEach(clearTimeout);
             timeoutsIntro = [];
             
-            camPos = vec3.fromValues(6, 2.5, 3); 
-            yaw = -135.0; pitch = -15.0; 
+            // Porta principal fechada
+            portaExt.targetAngle = 0;
+            portaExt.angle = 0;
+
+            // Câmera Panorâmica posicionada do lado de fora acompanhando
+            camPos = vec3.fromValues(-10, 8, 25); 
+            yaw = -45.0; pitch = -20.0; 
             
-            donoDaCasa.pos = [0, 0.0, -2.0]; 
+            // O dono agora inicia no meio da rua caminhando
+            donoDaCasa.pos = [0, 0.0, 25.0]; 
             donoDaCasa.estado = "CAÇANDO"; 
             
             portasInt.forEach(p => { p.aberta = false; p.targetAngle = 0; p.angle = 0; });
@@ -552,6 +562,11 @@
             document.getElementById("crosshair").classList.add("hidden");
             document.getElementById("tela-preta-intro").classList.add("hidden");
             document.getElementById("skip-intro").classList.remove("hidden");
+
+            // Exibir a Legenda da fala na intro
+            uiAviso.innerText = '"Roubei a herança daquele otário, agora é dormir e depois lavar esse dinheiro"'; 
+            uiAviso.style.color = "#fff"; 
+            uiAviso.classList.remove("hidden");
             
             lastTime = performance.now();
         }
@@ -561,6 +576,7 @@
             nivelBarulho = 0.0; tempoAmanhecer = 90.0; lastTime = performance.now();
             itemNaMao = false; itensNoCarro = 0; tentativasSenha = 0; cofre.aberto = false; cofre.angle = 0; cofre.targetAngle = 0;
             
+            portaExt.targetAngle = 0; portaExt.angle = 0; // Reseta porta de fora caso pule a cena
             let carro = moveisFisica.find(m => m.id === 'carro_fuga');
             if(carro) { carro.x = 0; carro.z = 28; }
             
@@ -800,17 +816,23 @@
             }
         }
 
-        function desenhaPolicial(vp, pos, rotY) {
+        function desenhaPolicial(vp, pos, rotY, animando = false, now = 0) {
+            let walkAnim = animando ? Math.sin(now / 150) * 0.4 : 0;
             desenhaParteCorpoFallback(vp, pos, [0, 1.4, 0], [0.4, 0.4, 0.4], texturas.pele, rotY); 
             desenhaParteCorpoFallback(vp, pos, [0, 1.65, 0], [0.45, 0.1, 0.45], texturas.policia_roupa, rotY); 
             desenhaParteCorpoFallback(vp, pos, [0, 1.62, 0.15], [0.45, 0.05, 0.3], null, rotY, 0, 0, true, [0.05, 0.05, 0.05, 1.0]); 
             desenhaParteCorpoFallback(vp, pos, [0, 0.8, 0], [0.6, 0.8, 0.4], texturas.policia_roupa, rotY); 
-            desenhaParteCorpoFallback(vp, pos, [-0.2, 0.3, 0], [0.3, 0.6, 0.3], null, rotY, 0, 0, true, [0.05, 0.05, 0.05, 1.0]); 
-            desenhaParteCorpoFallback(vp, pos, [0.2, 0.3, 0], [0.3, 0.6, 0.3], null, rotY, 0, 0, true, [0.05, 0.05, 0.05, 1.0]); 
-            desenhaParteCorpoFallback(vp, pos, [-0.4, 1.0, 0.1], [0.2, 0.6, 0.2], texturas.policia_roupa, rotY); 
-            desenhaParteCorpoFallback(vp, pos, [0.4, 1.0, 0.1], [0.2, 0.6, 0.2], texturas.policia_roupa, rotY); 
-            desenhaParteCorpoFallback(vp, pos, [-0.4, 0.65, 0.1], [0.15, 0.15, 0.15], texturas.pele, rotY);
-            desenhaParteCorpoFallback(vp, pos, [0.4, 0.65, 0.1], [0.15, 0.15, 0.15], texturas.pele, rotY);
+            
+            // Pernas animadas
+            desenhaParteCorpoFallback(vp, pos, [-0.2, 0.3, walkAnim], [0.3, 0.6, 0.3], null, rotY, 0, 0, true, [0.05, 0.05, 0.05, 1.0]); 
+            desenhaParteCorpoFallback(vp, pos, [0.2, 0.3, -walkAnim], [0.3, 0.6, 0.3], null, rotY, 0, 0, true, [0.05, 0.05, 0.05, 1.0]); 
+            
+            // Braços com balanço leve
+            let bracoAnim = animando ? 0.2 : 0;
+            desenhaParteCorpoFallback(vp, pos, [-0.4, 1.0, 0.1 + bracoAnim], [0.2, 0.6, 0.2], texturas.policia_roupa, rotY); 
+            desenhaParteCorpoFallback(vp, pos, [0.4, 1.0, 0.1 - bracoAnim], [0.2, 0.6, 0.2], texturas.policia_roupa, rotY); 
+            desenhaParteCorpoFallback(vp, pos, [-0.4, 0.65, 0.1 + bracoAnim], [0.15, 0.15, 0.15], texturas.pele, rotY);
+            desenhaParteCorpoFallback(vp, pos, [0.4, 0.65, 0.1 - bracoAnim], [0.15, 0.15, 0.15], texturas.pele, rotY);
         }
 
         function rodarCutscenePolicia() {
@@ -819,21 +841,46 @@
             estadoJogo = "CUTSCENE_POLICIA";
             playerControlavel = false;
             
+            document.getElementById("hud-barulho").classList.add("hidden");
+            uiAviso.classList.add("hidden");
+
             camPos[0] = 0; camPos[1] = 1.7; camPos[2] = 8.0; 
             
-            let dx = posPolicia[0] - camPos[0], dz = posPolicia[2] - camPos[2], dy = 1.4 - camPos[1];
-            yaw = Math.atan2(dz, dx) * (180 / Math.PI);
-            pitch = Math.atan2(dy, Math.sqrt(dx*dx + dz*dz)) * (180 / Math.PI);
-            
-            uiAviso.innerText = "PARADO AÍ! VOCÊ ESTÁ PRESO!"; 
-            uiAviso.style.color = "#2196f3"; 
-            uiAviso.classList.remove("hidden");
-            document.getElementById("hud-barulho").classList.add("hidden");
+            // 1. Foca na Lua (Mantém a noite temporariamente no render)
+            tempoAmanhecer = 0.1; 
+            let dxLua = 25 - camPos[0], dzLua = 80 - camPos[2], dyLua = 30 - camPos[1];
+            yaw = Math.atan2(dzLua, dxLua) * (180 / Math.PI);
+            pitch = Math.atan2(dyLua, Math.sqrt(dxLua*dxLua + dzLua*dzLua)) * (180 / Math.PI);
 
-            setTimeout(() => { 
-                uiAviso.classList.add("hidden"); 
-                finalizarJogo("GAMEOVER_POLICIA"); 
-            }, 4000);
+            setTimeout(() => {
+                // 2. Amanhece (Pula para o dia e foca no Sol)
+                tempoAmanhecer = 0; 
+                let dySol = 40 - camPos[1];
+                pitch = Math.atan2(dySol, Math.sqrt(dxLua*dxLua + dzLua*dzLua)) * (180 / Math.PI);
+
+                setTimeout(() => {
+                    // 3. Câmera desce e foca no Policial
+                    let dxP = posPolicia[0] - camPos[0], dzP = posPolicia[2] - camPos[2], dyP = 1.4 - camPos[1];
+                    yaw = Math.atan2(dzP, dxP) * (180 / Math.PI);
+                    pitch = Math.atan2(dyP, Math.sqrt(dxP*dxP + dzP*dzP)) * (180 / Math.PI);
+
+                    // 4. Policial começa a andar
+                    animacaoPoliciaAndando = true;
+
+                    setTimeout(() => {
+                        // 5. Policial para e dá a voz de prisão
+                        animacaoPoliciaAndando = false;
+                        uiAviso.innerText = "PARADO AÍ! VOCÊ ESTÁ PRESO!"; 
+                        uiAviso.style.color = "#2196f3"; 
+                        uiAviso.classList.remove("hidden");
+
+                        setTimeout(() => {
+                            uiAviso.classList.add("hidden"); 
+                            finalizarJogo("GAMEOVER_POLICIA"); 
+                        }, 4000);
+                    }, 2000); // Fica 2s dando os passos
+                }, 2000); // Fica 2s olhando pro Sol
+            }, 2000); // Fica 2s olhando pra Lua
         }
 
         function rodarCutsceneAcordar() {
@@ -1011,46 +1058,79 @@
                 }
                 vec3.set(camFront, Math.cos(glMatrix.toRadian(yaw)) * Math.cos(glMatrix.toRadian(pitch)), Math.sin(glMatrix.toRadian(pitch)), Math.sin(glMatrix.toRadian(yaw)) * Math.cos(glMatrix.toRadian(pitch))); vec3.normalize(camFront, camFront);
             } else if (estadoJogo === "INTRO") {
-                camPos[0] = 6.0; camPos[1] = 2.5; camPos[2] += (donoDaCasa.pos[2] + 8.0 - camPos[2]) * 0.05; 
-                yaw = -135.0; pitch = -15.0;
-
                 let velWalking = 3.5 * dt;
 
                 if (introFase === 0) {
-                    if (donoDaCasa.pos[2] > -10.5) donoDaCasa.pos[2] -= velWalking; 
-                    else {
-                        introFase = 1; portasInt[0].aberta = true; portasInt[0].targetAngle = Math.PI / 2;
-                        addIntroTimeout(() => { introFase = 2; }, 600); 
+                    // Câmera Panorâmica acompanha o velho de fora
+                    let dx = donoDaCasa.pos[0] - camPos[0], dz = donoDaCasa.pos[2] - camPos[2], dy = (donoDaCasa.pos[1] + 1.0) - camPos[1];
+                    yaw = Math.atan2(dz, dx) * (180 / Math.PI);
+                    pitch = Math.atan2(dy, Math.sqrt(dx*dx + dz*dz)) * (180 / Math.PI);
+
+                    if (donoDaCasa.pos[2] > 6.5) {
+                        donoDaCasa.pos[2] -= velWalking; 
+                    } else {
+                        // Chegou na porta, abre a porta principal
+                        introFase = 1; 
+                        portaExt.targetAngle = Math.PI / 2;
+                        addIntroTimeout(() => { introFase = 2; }, 600);
                     }
                 } else if (introFase === 2) {
-                    if (donoDaCasa.pos[2] > -14.5) donoDaCasa.pos[2] -= velWalking;
-                    else {
-                        introFase = 3; portasInt[0].aberta = false; portasInt[0].targetAngle = 0;
+                    // Espera abrir e entra
+                    let dx = donoDaCasa.pos[0] - camPos[0], dz = donoDaCasa.pos[2] - camPos[2], dy = (donoDaCasa.pos[1] + 1.0) - camPos[1];
+                    yaw = Math.atan2(dz, dx) * (180 / Math.PI);
+                    pitch = Math.atan2(dy, Math.sqrt(dx*dx + dz*dz)) * (180 / Math.PI);
+
+                    if (donoDaCasa.pos[2] > 4.0) {
+                        donoDaCasa.pos[2] -= velWalking; 
+                    } else {
+                        // Corta a câmera para o lado de dentro
+                        introFase = 3; 
+                        ambiente = "INTERIOR";
+                        uiAviso.classList.add("hidden"); // Tira a legenda
+                        portaExt.targetAngle = 0; // Fecha a porta atrás dele
+                        camPos[0] = 6.0; camPos[1] = 2.5; camPos[2] = 3.0; // Posição inicial da câmera interna
                     }
-                } else if (introFase === 3) {
-                    if (donoDaCasa.pos[2] > -26.5) donoDaCasa.pos[2] -= velWalking;
-                    else {
-                        introFase = 4; portasInt[1].aberta = true; portasInt[1].targetAngle = Math.PI / 2;
-                        addIntroTimeout(() => { introFase = 5; }, 600); 
-                    }
-                } else if (introFase === 5) {
-                    if (donoDaCasa.pos[2] > -30.5) donoDaCasa.pos[2] -= velWalking;
-                    else {
-                        introFase = 6; portasInt[1].aberta = false; portasInt[1].targetAngle = 0;
-                    }
-                } else if (introFase === 6) {
-                    if (donoDaCasa.pos[2] > -42.0) donoDaCasa.pos[2] -= velWalking;
-                    else {
-                        introFase = 7; donoDaCasa.estado = "DORMINDO"; donoDaCasa.pos = [0, 0.6, -42.0]; 
-                        
-                        addIntroTimeout(() => {
-                            document.getElementById("tela-preta-intro").classList.remove("hidden");
-                            addIntroTimeout(() => { document.getElementById("texto-intro").style.opacity = "1"; }, 500);
+                } else if (introFase >= 3) {
+                    // Câmera de dentro da casa acompanhando ele
+                    camPos[0] = 6.0; camPos[1] = 2.5; camPos[2] += (donoDaCasa.pos[2] + 8.0 - camPos[2]) * 0.05; 
+                    yaw = -135.0; pitch = -15.0;
+
+                    if (introFase === 3) {
+                        if (donoDaCasa.pos[2] > -10.5) donoDaCasa.pos[2] -= velWalking; 
+                        else {
+                            introFase = 4; portasInt[0].aberta = true; portasInt[0].targetAngle = Math.PI / 2;
+                            addIntroTimeout(() => { introFase = 5; }, 600); 
+                        }
+                    } else if (introFase === 5) {
+                        if (donoDaCasa.pos[2] > -14.5) donoDaCasa.pos[2] -= velWalking;
+                        else {
+                            introFase = 6; portasInt[0].aberta = false; portasInt[0].targetAngle = 0;
+                        }
+                    } else if (introFase === 6) {
+                        if (donoDaCasa.pos[2] > -26.5) donoDaCasa.pos[2] -= velWalking;
+                        else {
+                            introFase = 7; portasInt[1].aberta = true; portasInt[1].targetAngle = Math.PI / 2;
+                            addIntroTimeout(() => { introFase = 8; }, 600); 
+                        }
+                    } else if (introFase === 8) {
+                        if (donoDaCasa.pos[2] > -30.5) donoDaCasa.pos[2] -= velWalking;
+                        else {
+                            introFase = 9; portasInt[1].aberta = false; portasInt[1].targetAngle = 0;
+                        }
+                    } else if (introFase === 9) {
+                        if (donoDaCasa.pos[2] > -42.0) donoDaCasa.pos[2] -= velWalking;
+                        else {
+                            introFase = 10; donoDaCasa.estado = "DORMINDO"; donoDaCasa.pos = [0, 0.6, -42.0]; 
+                            
                             addIntroTimeout(() => {
-                                document.getElementById("texto-intro").style.opacity = "0";
-                                addIntroTimeout(iniciarJogoReal, 1500);
-                            }, 5000); 
-                        }, 1000); 
+                                document.getElementById("tela-preta-intro").classList.remove("hidden");
+                                addIntroTimeout(() => { document.getElementById("texto-intro").style.opacity = "1"; }, 500);
+                                addIntroTimeout(() => {
+                                    document.getElementById("texto-intro").style.opacity = "0";
+                                    addIntroTimeout(iniciarJogoReal, 1500);
+                                }, 5000); 
+                            }, 1000); 
+                        }
                     }
                 }
 
@@ -1136,7 +1216,6 @@
                 desenhaObjeto(vp, [0, -0.47, 21.5], [6, 0.1, 29], texturas.calcada);
 
                 paredes.forEach(p => desenhaObjeto(vp, [p.x, 2.5, p.z], [p.w, 5, p.d], texturas.parede_ext));
-                desenhaObjeto(vp, [0, 1.75, 5.05], [4, 3.5, 0.1], texturas.porta_ext); 
                 desenhaObjeto(vp, [0, 0.1, 6.0], [3, 0.1, 2], texturas.madeira, Math.PI/2);
                 desenhaObjeto(vp, [0, 5.5, -20], [40.5, 1, 50], texturas.telhado);
 
@@ -1165,7 +1244,12 @@
 
                 if (estadoJogo === "CUTSCENE_POLICIA") {
                     let rotYPolicia = Math.atan2(camPos[0] - posPolicia[0], camPos[2] - posPolicia[2]);
-                    desenhaPolicial(vp, posPolicia, rotYPolicia);
+                    if (animacaoPoliciaAndando) {
+                        posPolicia[2] -= 1.5 * dt; // Faz o policial se aproximar de você
+                        desenhaPolicial(vp, posPolicia, rotYPolicia, true, now);
+                    } else {
+                        desenhaPolicial(vp, posPolicia, rotYPolicia, false, now);
+                    }
                 }
 
             } else {
@@ -1182,8 +1266,6 @@
                     desenhaObjeto(vp, [cx, p.hinge[1], cz], [p.width, 3.5, 0.2], texturas.porta_ext, p.angle);
                 });
 
-                desenhaObjeto(vp, [0, 1.75, 4.95], [4, 3.5, 0.1], texturas.porta_ext); 
-
                 // Renderizando Papéis de Dicas
                 papeis.forEach(p => desenhaObjeto(vp, p.pos, [0.5, 0.05, 0.5], texturas.papel));
 
@@ -1195,20 +1277,31 @@
                 let cxCofre = cofre.pos[0] + 1.25 - Math.cos(cofre.angle) * 1.25;
                 let czCofre = cofre.pos[2] + Math.sin(cofre.angle) * 1.25;
                 desenhaObjeto(vp, [cxCofre, cofre.pos[1], czCofre], [2.5, 2.5, 0.2], texturas.cofre_porta, cofre.angle);
+            }
 
-                let rotYDono = Math.PI / 2; 
-                if (estadoJogo === "INTRO" && introFase < 7) {
-                    rotYDono = Math.PI; 
-                } else if (donoDaCasa.estado !== "DORMINDO") {
-                    rotYDono = Math.atan2(camPos[0] - donoDaCasa.pos[0], camPos[2] - donoDaCasa.pos[2]);
-                }
-                
-                if (estadoJogo !== "CUTSCENE_POLICIA") {
-                    desenhaVelhinho(vp, donoDaCasa.pos, donoDaCasa.estado, rotYDono, now);
-                }
+            // --- RENDERIZAÇÃO GLOBAL (Fora do if/else de ambiente para aparecerem sempre que precisar) ---
+            
+            // Animação da porta principal (Aparece tanto de fora quanto de dentro)
+            portaExt.angle += (portaExt.targetAngle - portaExt.angle) * 0.1;
+            let cxExt = -2 + Math.cos(portaExt.angle) * 2;
+            let czExt = 5.0 - Math.sin(portaExt.angle) * 2;
+            desenhaObjeto(vp, [cxExt, 1.75, czExt], [4, 3.5, 0.2], texturas.porta_ext, portaExt.angle);
+
+            // Dono da Casa
+            let rotYDono = Math.PI / 2; 
+            if (estadoJogo === "INTRO" && introFase < 10) {
+                rotYDono = Math.PI; 
+            } else if (donoDaCasa.estado !== "DORMINDO") {
+                rotYDono = Math.atan2(camPos[0] - donoDaCasa.pos[0], camPos[2] - donoDaCasa.pos[2]);
+            }
+            
+            if (estadoJogo !== "CUTSCENE_POLICIA") {
+                desenhaVelhinho(vp, donoDaCasa.pos, donoDaCasa.estado, rotYDono, now);
             }
 
             moveisFisica.forEach(m => {
+                if (estadoJogo === "INTRO" && m.id === 'carro_fuga') return; // ESCONDE O CARRO NA INTRO
+
                 if (m.id === 'carro_fuga' && modeloCarroObj) {
                     let escalaCarroObj = [0.4, 0.4, 0.4]; 
                     let fixX_Carro = 0; 
