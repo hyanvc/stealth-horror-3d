@@ -486,7 +486,7 @@
                     lastTime = performance.now(); 
                 }
             } else {
-                if (!digitandoSenha && (estadoJogo === "JOGANDO" || estadoJogo === "INTRO" || estadoJogo === "CUTSCENE" || estadoJogo === "CUTSCENE_POLICIA")) {
+                if (!digitandoSenha && (estadoJogo === "JOGANDO" || estadoJogo === "INTRO" || estadoJogo === "CUTSCENE" || estadoJogo === "CUTSCENE_POLICIA" || estadoJogo === "CUTSCENE_VITORIA")) {
                     estadoAnterior = estadoJogo;
                     estadoJogo = "PAUSADO";
                     document.getElementById("menu-pause").style.display = "flex";
@@ -560,6 +560,10 @@
             estadoJogo = "JOGANDO"; ambiente = "EXTERIOR"; playerControlavel = true; donoDaCasa.estado = "DORMINDO"; cutsceneRodando = false; 
             nivelBarulho = 0.0; tempoAmanhecer = 90.0; lastTime = performance.now();
             itemNaMao = false; itensNoCarro = 0; tentativasSenha = 0; cofre.aberto = false; cofre.angle = 0; cofre.targetAngle = 0;
+            
+            let carro = moveisFisica.find(m => m.id === 'carro_fuga');
+            if(carro) { carro.x = 0; carro.z = 28; }
+            
             document.getElementById("hud-mao").innerText = "VAZIAS"; document.getElementById("hud-mao").style.color = "#fff";
             
             yaw = -90.0; pitch = 0.0; camPos = vec3.fromValues(0, 1.7, 42); donoDaCasa.pos = [0, 0.6, -42.0]; itens.forEach(i => i.roubado = false); portasInt.forEach(p => {p.aberta=false; p.targetAngle=0; p.angle=0;}); uiAmbiente.innerText = "EXTERIOR (NOITE)"; uiAviso.classList.add("hidden"); uiAviso.style.color = "#ffeb3b"; uiItens.innerText = "0"; avisoTemporario = false;
@@ -590,7 +594,7 @@
                 return;
             }
 
-            if (key === 'p' && (estadoJogo === "JOGANDO" || estadoJogo === "INTRO" || estadoJogo === "CUTSCENE" || estadoJogo === "CUTSCENE_POLICIA")) document.exitPointerLock();
+            if (key === 'p' && (estadoJogo === "JOGANDO" || estadoJogo === "INTRO" || estadoJogo === "CUTSCENE" || estadoJogo === "CUTSCENE_POLICIA" || estadoJogo === "CUTSCENE_VITORIA")) document.exitPointerLock();
             if(estadoJogo === "JOGANDO" && playerControlavel && !digitandoSenha) processarAcaoKeys(e); 
         };
         window.onkeyup = e => keys[e.key.toLowerCase()] = false;
@@ -674,13 +678,28 @@
                         document.getElementById("hud-mao").style.color = "#fff";
                         
                         if(itensNoCarro === itens.length) {
-                            finalizarJogo("VITORIA");
+                            rodarCutsceneVitoria();
                         } else {
                             mostrarAvisoTemporario("Ouro no porta-malas! Faltam " + (itens.length - itensNoCarro) + ".", "#4caf50", 3000);
                         }
                     }
                 }
             }
+        }
+
+        function rodarCutsceneVitoria() {
+            if(cutsceneRodando && estadoJogo === "CUTSCENE_VITORIA") return;
+            cutsceneRodando = true;
+            estadoJogo = "CUTSCENE_VITORIA";
+            playerControlavel = false;
+            
+            document.getElementById("ui").classList.add("hidden");
+            document.getElementById("crosshair").classList.add("hidden");
+            document.getElementById("hud-barulho").classList.add("hidden");
+            
+            uiAviso.innerText = "VOCÊ RECUPEROU TUDO! FUGINDO..."; 
+            uiAviso.style.color = "#4caf50"; 
+            uiAviso.classList.remove("hidden");
         }
 
         function finalizarJogo(resultado) { 
@@ -910,7 +929,7 @@
                     hudBarulho.classList.remove("hidden");
                     let movendo = keys['w'] || keys['a'] || keys['s'] || keys['d'];
                     
-                    if (movendo) nivelBarulho += 40.0 * dt; 
+                    if (movendo) nivelBarulho += 30.0 * dt; 
                     else nivelBarulho -= 20.0 * dt; 
 
                     if(nivelBarulho < 0) nivelBarulho = 0;
@@ -971,7 +990,25 @@
                         if(!colideComParedes(camPos[0], camPos[2] + dz)) camPos[2] += dz;
                     } else { camPos[0] += dx; camPos[2] += dz; }
                 }
-            } else if (estadoJogo === "CUTSCENE" || estadoJogo === "CUTSCENE_POLICIA") {
+            } else if (estadoJogo === "CUTSCENE" || estadoJogo === "CUTSCENE_POLICIA" || estadoJogo === "CUTSCENE_VITORIA") {
+                if (estadoJogo === "CUTSCENE_VITORIA") {
+                    let carro = moveisFisica.find(m => m.id === 'carro_fuga');
+                    if (carro) {
+                        carro.z += 25.0 * dt; // Faz o carro acelerar para longe
+                        
+                        // Câmera estática acompanhando o carro sumir na estrada
+                        camPos[0] = -12; camPos[1] = 5; camPos[2] = 16;
+                        let dx = carro.x - camPos[0], dz = carro.z - camPos[2], dy = (carro.y + 0.2) - camPos[1];
+                        yaw = Math.atan2(dz, dx) * (180 / Math.PI);
+                        pitch = Math.atan2(dy, Math.sqrt(dx*dx + dz*dz)) * (180 / Math.PI);
+                        
+                        // Quando o carro passar do limite visível da rua
+                        if (carro.z > 95) {
+                            uiAviso.classList.add("hidden");
+                            finalizarJogo("VITORIA");
+                        }
+                    }
+                }
                 vec3.set(camFront, Math.cos(glMatrix.toRadian(yaw)) * Math.cos(glMatrix.toRadian(pitch)), Math.sin(glMatrix.toRadian(pitch)), Math.sin(glMatrix.toRadian(yaw)) * Math.cos(glMatrix.toRadian(pitch))); vec3.normalize(camFront, camFront);
             } else if (estadoJogo === "INTRO") {
                 camPos[0] = 6.0; camPos[1] = 2.5; camPos[2] += (donoDaCasa.pos[2] + 8.0 - camPos[2]) * 0.05; 
@@ -1044,7 +1081,7 @@
                 }
             }
             
-            if (!exibirDicaFixa && !avisoTemporario && estadoJogo !== "CUTSCENE" && estadoJogo !== "CUTSCENE_POLICIA") {
+            if (!exibirDicaFixa && !avisoTemporario && estadoJogo !== "CUTSCENE" && estadoJogo !== "CUTSCENE_POLICIA" && estadoJogo !== "CUTSCENE_VITORIA") {
                 uiAviso.classList.add("hidden");
             }
 
