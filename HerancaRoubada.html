@@ -363,8 +363,15 @@
             { x: 8, z: -17, w: 0.5, d: 10 }, { x: 8, z: -26.5, w: 0.5, d: 3 } 
         ];
 
+        // Adicionando colisão nas casas da Vila para não atravessar
+        for(let zVila=25; zVila<=125; zVila+=20) {
+            paredes.push({ x: -18, z: zVila, w: 12, d: 12 });
+            paredes.push({ x: 18, z: zVila, w: 12, d: 12 });
+        }
+
         const moveisFisica = [
-            { id: 'carro_fuga', x: 0, z: 42, y: 0.5, w: 4, d: 8, h: 1.5, tex: texturas.carro_fallback, rot: 0 },
+            // Altura do carro reduzida para 0.75 para grudar perfeito na nova pista vertical
+            { id: 'carro_fuga', x: 0, z: 42, y: 0.75, w: 4, d: 8, h: 1.5, tex: texturas.carro_fallback, rot: 0 },
             { x: 0, z: -42.5, y: 0.3, w: 5, d: 5, h: 0.6, tex: texturas.cama, rot: 0 }, 
             { x: 16, z: -40, y: 1.5, w: 4, d: 8, h: 3, tex: texturas.madeira, rot: 0 }, 
             { x: -6, z: -42.5, y: 0.4, w: 2, d: 2, h: 0.8, tex: texturas.madeira, rot: 0 }, 
@@ -1088,9 +1095,7 @@
                         camPos[0] = 6.0; camPos[1] = 2.5; camPos[2] = 3.0; 
                     }
                 } else if (introFase >= 3) {
-                    // --- CAMERA DA INTRO INTERNA ---
                     if (introFase >= 10 && introFase <= 14) {
-                        // Câmera focando no cofre/velho de um ângulo seguro
                         camPos[0] += (-2.0 - camPos[0]) * 0.05;
                         camPos[1] += (2.0 - camPos[1]) * 0.05;
                         camPos[2] += (-37.0 - camPos[2]) * 0.05;
@@ -1098,12 +1103,10 @@
                         yaw = Math.atan2(dz, dx) * (180 / Math.PI);
                         pitch = Math.atan2(dy, Math.sqrt(dx*dx + dz*dz)) * (180 / Math.PI);
                     } else {
-                        // Câmera padrão seguindo o trajeto normal
                         camPos[0] = 6.0; camPos[1] = 2.5; camPos[2] += (donoDaCasa.pos[2] + 8.0 - camPos[2]) * 0.05; 
                         yaw = -135.0; pitch = -15.0;
                     }
 
-                    // --- TRAJETO OTIMIZADO PARA EVITAR BUG E COLISÃO ---
                     if (introFase === 3) {
                         if (donoDaCasa.pos[2] > -10.5) donoDaCasa.pos[2] -= velWalking; 
                         else {
@@ -1121,48 +1124,47 @@
                             introFase = 7; portasInt[1].aberta = true; portasInt[1].targetAngle = Math.PI / 2;
                             addIntroTimeout(() => { introFase = 8; }, 600); 
                         }
-                    } else if (introFase === 8) { // Entra no quarto
+                    } else if (introFase === 8) { 
                         if (donoDaCasa.pos[2] > -30.5) donoDaCasa.pos[2] -= velWalking;
                         else {
                             introFase = 9; 
-                            portasInt[1].aberta = false; // FECHA A PORTA DO QUARTO
+                            portasInt[1].aberta = false; 
                             portasInt[1].targetAngle = 0;
                         }
-                    } else if (introFase === 9) { // Desce pelo centro do quarto até a altura do cofre
+                    } else if (introFase === 9) { 
                         if (donoDaCasa.pos[2] > -40.0) donoDaCasa.pos[2] -= velWalking;
                         else {
                             introFase = 10;
                         }
-                    } else if (introFase === 10) { // Caminha para a esquerda, mantendo distância segura da parede
+                    } else if (introFase === 10) { 
                         if (donoDaCasa.pos[0] > -6.0) donoDaCasa.pos[0] -= velWalking;
                         else {
                             introFase = 11;
                             cofre.aberto = true;
                             cofre.targetAngle = Math.PI / 2; 
                             
-                            // EXIBE A LEGENDA PEDIDA CORRETAMENTE
                             uiAviso.innerText = "Velho: está aqui todo o dinheiro hahaha, mas agora vou dormir.";
                             uiAviso.style.color = "#ffeb3b";
                             uiAviso.classList.remove("hidden");
                             
-                            addIntroTimeout(() => { introFase = 12; }, 2500); // 2.5 segundos admirando
+                            addIntroTimeout(() => { introFase = 12; }, 2500); 
                         }
                     } else if (introFase === 11) {
-                        // Estado de espera (admirando e rindo)
+                        // Espera
                     } else if (introFase === 12) { 
                         cofre.aberto = false;
                         cofre.targetAngle = 0; 
-                        uiAviso.classList.add("hidden"); // Remove a legenda
+                        uiAviso.classList.add("hidden"); 
                         introFase = 13;
-                        addIntroTimeout(() => { introFase = 14; }, 800); // Aguarda fechar
+                        addIntroTimeout(() => { introFase = 14; }, 800); 
                     } else if (introFase === 13) {
-                        // Estado de espera (fechando a porta do cofre)
-                    } else if (introFase === 14) { // Volta pro centro do quarto em X
+                        // Espera
+                    } else if (introFase === 14) { 
                         if (donoDaCasa.pos[0] < 0) donoDaCasa.pos[0] += velWalking;
                         else {
                             introFase = 15;
                         }
-                    } else if (introFase === 15) { // Caminha o resto do trajeto para a cama
+                    } else if (introFase === 15) { 
                         if (donoDaCasa.pos[2] > -42.0) donoDaCasa.pos[2] -= velWalking;
                         else {
                             introFase = 16; 
@@ -1258,30 +1260,48 @@
             mat4.multiply(vp, proj, view);
 
             if (ambiente === "EXTERIOR") {
-                desenhaObjeto(vp, [0, -0.5, 10], [200, 1, 100], texturas.grama);
-                desenhaObjeto(vp, [0, -0.48, 45], [200, 0.1, 12], texturas.asfalto);
-                desenhaObjeto(vp, [0, -0.46, 37.5], [200, 0.1, 3], texturas.calcada);
-                desenhaObjeto(vp, [0, -0.47, 21.5], [6, 0.1, 29], texturas.calcada);
+                // Fundo de Grama Verde
+                desenhaObjeto(vp, [0, -0.51, 80], [200, 1, 200], texturas.grama);
 
+                // --- PISTA E CALÇADAS CENTRAIS ---
+                // Calçada cobrindo toda a extensão (eixo Z)
+                 desenhaObjeto(vp, [0, 0.01, 104], [16, 0.02, 192], texturas.calcada);
+                // Asfalto no centro da calçada (eixo Z)
+                desenhaObjeto(vp, [0, 0.02, 104], [192, 0.02, 10], texturas.asfalto, Math.PI/2);
+                // Paredes originais e estrutura externa principal
                 paredes.forEach(p => desenhaObjeto(vp, [p.x, 2.5, p.z], [p.w, 5, p.d], texturas.parede_ext));
                 desenhaObjeto(vp, [0, 0.1, 6.0], [3, 0.1, 2], texturas.madeira, Math.PI/2);
                 desenhaObjeto(vp, [0, 5.5, -20], [40.5, 1, 50], texturas.telhado);
-
-                desenhaObjeto(vp, [-15, 0.5, 20], [2, 2, 35], texturas.folhas); 
-                desenhaObjeto(vp, [15, 0.5, 20], [2, 2, 35], texturas.folhas);  
-                desenhaObjeto(vp, [-9.5, 0.5, 36], [13, 2, 2], texturas.folhas); 
-                desenhaObjeto(vp, [9.5, 0.5, 36], [13, 2, 2], texturas.folhas);  
-
-                desenhaObjeto(vp, [-10, 2, 28], [0.8, 5, 0.8], texturas.tronco);
-                desenhaObjeto(vp, [-10, 5, 28], [5, 5, 5], texturas.folhas);
-                desenhaObjeto(vp, [10, 2, 15], [1.2, 5, 1.2], texturas.tronco);
-                desenhaObjeto(vp, [10, 6, 15], [6, 6, 6], texturas.folhas);
-                desenhaObjeto(vp, [-12, 2, 8], [1, 6, 1], texturas.tronco);
-                desenhaObjeto(vp, [-12, 6, 8], [5, 4, 5], texturas.folhas);
                 
+                // Muros extras
                 desenhaObjeto(vp, [-4, 3, 37.5], [0.3, 6, 0.3], texturas.parede); 
                 desenhaObjeto(vp, [-2.5, 5.8, 37.5], [3, 0.3, 0.3], texturas.parede); 
+
+                // --- CASAS DA VILA (Vizinhança) ---
+                let zCasas = [25, 45, 65, 85, 105, 125];
+                zCasas.forEach(z => {
+                    // Casas da Esquerda
+                    desenhaObjeto(vp, [-18, 2, z], [12, 4, 12], texturas.parede_ext);
+                    desenhaObjeto(vp, [-18, 4.5, z], [13, 1.5, 13], texturas.telhado);
+                    desenhaObjeto(vp, [-11.9, 1, z], [0.2, 2, 1.5], texturas.porta_ext);
+
+                    // Casas da Direita
+                    desenhaObjeto(vp, [18, 2, z], [12, 4, 12], texturas.parede_ext);
+                    desenhaObjeto(vp, [18, 4.5, z], [13, 1.5, 13], texturas.telhado);
+                    desenhaObjeto(vp, [11.9, 1, z], [0.2, 2, 1.5], texturas.porta_ext);
+                });
+
+                // --- ÁRVORES REPOSICIONADAS ---
+                let zArvores = [10, 35, 60, 85, 110];
+                zArvores.forEach(z => {
+                    desenhaObjeto(vp, [-7, 2, z], [0.8, 5, 0.8], texturas.tronco);
+                    desenhaObjeto(vp, [-7, 5, z], [4, 4, 4], texturas.folhas);
+                    
+                    desenhaObjeto(vp, [7, 2, z], [0.8, 5, 0.8], texturas.tronco);
+                    desenhaObjeto(vp, [7, 5, z], [4, 4, 4], texturas.folhas);
+                });
                 
+                // Sol ou Parede cega de dia/noite
                 if (isDia) {
                     desenhaObjeto(vp, [25, 40, 80], [10, 10, 0.1], texturas.sol, 0, null, 0, 0, true, [1.0, 0.9, 0.2, 1.0]); 
                     desenhaObjeto(vp, [-1, 5.5, 37.5], [0.8, 0.8, 0.8], texturas.parede); 
@@ -1305,7 +1325,11 @@
                 desenhaObjeto(vp, [0, 5, -20], [40.5, 1, 50], texturas.parede); 
                 
                 cenarioDecorativo.forEach(c => desenhaObjeto(vp, [c.x, c.y, c.z], [c.w, c.h, c.d], c.tex));
-                paredes.forEach(p => desenhaObjeto(vp, [p.x, 2.5, p.z], [p.w, 5, p.d], texturas.parede));
+                paredes.forEach(p => {
+                    // Impede o desenho dos blocos invisiveis de colisão das casas quando está dentro
+                    if (p.w === 12 && p.d === 12 && p.z > 20) return;
+                    desenhaObjeto(vp, [p.x, 2.5, p.z], [p.w, 5, p.d], texturas.parede)
+                });
                 
                 portasInt.forEach(p => {
                     p.angle += (p.targetAngle - p.angle) * 0.1; 
@@ -1352,18 +1376,18 @@
             moveisFisica.forEach(m => {
                 if (estadoJogo === "INTRO" && m.id === 'carro_fuga') return; 
 
-            if (m.id === 'carro_fuga' && modeloCarroObj) {
+                if (m.id === 'carro_fuga' && modeloCarroObj) {
                     let escalaCarroObj = [0.4, 0.4, 0.4]; 
                     let fixX_Carro = 0; 
                     let rotY_Carro = Math.PI; 
-                    // AJUSTE AQUI: Trocado m.y - 0.5 por m.y + 0.3
-                    desenhaObjeto(vp, [m.x, m.y + 0.3, m.z], escalaCarroObj, texturas.carro_solido, rotY_Carro, modeloCarroObj, fixX_Carro);
+                    
+                    desenhaObjeto(vp, [m.x, m.y, m.z], escalaCarroObj, texturas.carro_solido, rotY_Carro, modeloCarroObj, fixX_Carro);
                 } else {
                     desenhaObjeto(vp, [m.x, m.y, m.z], [m.w, m.h, m.d], m.tex, m.rot);
                 }
             });
 
-            // Pilhas de ouro aparecem se o cofre estiver aberto (funciona na intro também!)
+            // Pilhas de ouro
             itens.forEach(item => { if(!item.roubado && cofre.aberto) desenhaObjeto(vp, item.pos, item.scale, item.tex); });
         }
         requestAnimationFrame(render);
