@@ -1,0 +1,1333 @@
+const canvas = document.querySelector("#c");
+const gl = canvas.getContext("webgl2");
+
+// --- SHADERS ---
+const vs = `#version 300 es
+    layout(location=0) in vec3 a_pos;
+    layout(location=1) in vec2 a_tex;
+    layout(location=2) in vec3 a_norm;
+    uniform mat4 u_matrix; uniform mat4 u_model;
+    out vec2 v_tex; out vec3 v_norm; out vec3 v_fragPos;
+    void main() { gl_Position = u_matrix * vec4(a_pos, 1.0); v_tex = a_tex; v_fragPos = vec3(u_model * vec4(a_pos, 1.0)); v_norm = mat3(transpose(inverse(u_model))) * a_norm; }
+`;
+const fs = `#version 300 es
+    precision highp float;
+    in vec2 v_tex; in vec3 v_norm; in vec3 v_fragPos;
+    
+    uniform sampler2D u_texture; 
+    uniform vec3 u_lightPos; 
+    uniform float u_ambientLvl; 
+    uniform vec3 u_lightCol;
+    
+    uniform vec3 u_viewPos;  
+    uniform bool u_useSolid; 
+    uniform vec4 u_solidCol; 
+
+    // Mecânica de Lanterna
+    uniform bool u_flashlightOn;
+    uniform vec3 u_camFront;
+    
+    out vec4 outColor;
+    void main() { 
+        vec4 baseColor;
+        if(u_useSolid) {
+            baseColor = u_solidCol;
+        } else {
+            baseColor = texture(u_texture, v_tex);
+            if(baseColor.a < 0.1) discard; 
+        }
+
+        vec3 norm = normalize(v_norm);
+        vec3 lightDir = normalize(u_lightPos - v_fragPos);
+        
+        float diff = max(dot(norm, lightDir), 0.0);
+        vec3 diffuse = diff * u_lightCol;
+        
+        vec3 viewDir = normalize(u_viewPos - v_fragPos);
+        vec3 reflectDir = reflect(-lightDir, norm);
+        float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);
+        vec3 specular = 0.5 * spec * u_lightCol; 
+        
+        vec3 ambient = vec3(u_ambientLvl);
+        vec3 result = (ambient + diffuse + specular) * baseColor.rgb;
+        
+        // Spotlight da Lanterna
+        if(u_flashlightOn) {
+            vec3 lightToFrag = normalize(v_fragPos - u_viewPos);
+            float theta = dot(lightToFrag, normalize(u_camFront));
+            
+            // Cones de luz interno (cutOff) e suave externo (outerCutOff)
+            float cutOff = 0.95; 
+            float outerCutOff = 0.90; 
+            
+            if(theta > outerCutOff) {
+                float intensity = clamp((theta - outerCutOff) / (cutOff - outerCutOff), 0.0, 1.0);
+                float spotDiff = max(dot(norm, -lightToFrag), 0.0);
+                
+                float distance = length(u_viewPos - v_fragPos);
+                float attenuation = 1.0 / (1.0 + 0.04 * distance + 0.005 * distance * distance);
+                
+                vec3 spotColor = vec3(1.0, 1.0, 0.9);
+                vec3 spotLight = spotColor * spotDiff * intensity * attenuation * 2.5; 
+                
+                result += spotLight * baseColor.rgb;
+            }
+        }
+        
+        outColor = vec4(result, baseColor.a); 
+    }
+`;
+
+function createProgram(gl, vs, fs) {
+    const vS = gl.createShader(gl.VERTEX_SHADER); gl.shaderSource(vS, vs); gl.compileShader(vS);
+    const fS = gl.createShader(gl.FRAGMENT_SHADER); gl.shaderSource(fS, fs); gl.compileShader(fS);
+    const p = gl.createProgram(); gl.attachShader(p, vS); gl.attachShader(p, fS); gl.linkProgram(p);
+    return p;
+}
+
+const program = createProgram(gl, vs, fs);
+const matLoc = gl.getUniformLocation(program, "u_matrix");
+const modelLoc = gl.getUniformLocation(program, "u_model");
+const texLoc = gl.getUniformLocation(program, "u_texture");
+const lightLoc = gl.getUniformLocation(program, "u_lightPos");
+const lightColLoc = gl.getUniformLocation(program, "u_lightCol");
+const ambLoc = gl.getUniformLocation(program, "u_ambientLvl");
+
+const viewPosLoc = gl.getUniformLocation(program, "u_viewPos");
+const useSolidLoc = gl.getUniformLocation(program, "u_useSolid");
+const solidColLoc = gl.getUniformLocation(program, "u_solidCol");
+
+const flashLoc = gl.getUniformLocation(program, "u_flashlightOn");
+const camFrontLoc = gl.getUniformLocation(program, "u_camFront");
+
+const vertices = new Float32Array([-0.5,-0.5, 0.5, 0,0, 0,0,1, 0.5,-0.5, 0.5, 1,0, 0,0,1, 0.5, 0.5, 0.5, 1,1, 0,0,1, -0.5, 0.5, 0.5, 0,1, 0,0,1, -0.5,-0.5,-0.5, 1,0, 0,0,-1, -0.5, 0.5,-0.5, 1,1, 0,0,-1, 0.5, 0.5,-0.5, 0,1, 0,0,-1, 0.5,-0.5,-0.5, 0,0, 0,0,-1, -0.5, 0.5,-0.5, 0,1, 0,1,0, -0.5, 0.5, 0.5, 0,0, 0,1,0, 0.5, 0.5, 0.5, 1,0, 0,1,0, 0.5, 0.5,-0.5, 1,1, 0,1,0, -0.5,-0.5,-0.5, 1,1, 0,-1,0, 0.5,-0.5,-0.5, 0,1, 0,-1,0, 0.5,-0.5, 0.5, 0,0, 0,-1,0, -0.5,-0.5, 0.5, 1,0, 0,-1,0, 0.5,-0.5,-0.5, 1,0, 1,0,0, 0.5, 0.5,-0.5, 1,1, 1,0,0, 0.5, 0.5, 0.5, 0,1, 1,0,0, 0.5,-0.5, 0.5, 0,0, 1,0,0, -0.5,-0.5,-0.5, 0,0, -1,0,0, -0.5,-0.5, 0.5, 1,0, -1,0,0, -0.5, 0.5, 0.5, 1,1, -1,0,0, -0.5, 0.5,-0.5, 0,1, -1,0,0 ]);
+const indices = new Uint16Array([0,1,2, 0,2,3, 4,5,6, 4,6,7, 8,9,10, 8,10,11, 12,13,14, 12,14,15, 16,17,18, 16,18,19, 20,21,22, 20,22,23]);
+
+const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+const vbo = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+const ebo = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0);
+gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 32, 12);
+gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 32, 20);
+
+function criarTextura(tipo) {
+    const c = document.createElement('canvas'); c.width = 256; c.height = 256; const ctx = c.getContext('2d');
+    if(tipo === 'parede') { ctx.fillStyle = '#cfd8dc'; ctx.fillRect(0,0,256,256);
+    } else if(tipo === 'parede_ext') { ctx.fillStyle = '#ffcc80'; ctx.fillRect(0,0,256,256);
+    } else if(tipo === 'chao') { ctx.fillStyle = '#5d4037'; ctx.fillRect(0,0,256,256); ctx.strokeStyle = '#3e2723'; ctx.lineWidth = 4; for(let y=0; y<256; y+=32) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(256,y); ctx.stroke(); }
+    } else if(tipo === 'grama') { ctx.fillStyle = '#2e7d32'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#1b5e20'; for(let i=0; i<100; i++) ctx.fillRect(Math.random()*256, Math.random()*256, 10, 10);
+    } else if(tipo === 'cama') { ctx.fillStyle = '#8d6e63'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#e3f2fd'; ctx.fillRect(10,10,236,200); ctx.fillStyle = '#fff'; ctx.fillRect(40,20,176,60);
+    } else if(tipo === 'telhado') { ctx.fillStyle = '#5d4037'; ctx.fillRect(0,0,256,256); ctx.strokeStyle = '#3e2723'; ctx.lineWidth = 2; for(let y=0; y<256; y+=16) { for(let x=0; x<256; x+=32) { ctx.strokeRect(x,y,32,16); } }
+    } else if(tipo === 'porta_ext') { ctx.fillStyle = '#8d6e63'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#4e342e'; ctx.fillRect(20,20,216,216); ctx.fillStyle = '#ffd700'; ctx.beginPath(); ctx.arc(220, 128, 10, 0, 2*Math.PI); ctx.fill(); 
+    } else if(tipo === 'pele') { ctx.fillStyle = '#ffccaa'; ctx.fillRect(0,0,256,256); 
+    } else if(tipo === 'pijama') { ctx.fillStyle = '#b3e5fc'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#0288d1'; for(let y=0; y<256; y+=20) ctx.fillRect(0,y,256,4); 
+    } else if(tipo === 'tv') { ctx.fillStyle = '#111'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#333'; ctx.fillRect(10,10,236,236); ctx.fillStyle = '#222'; ctx.fillRect(20,20,216,216);
+    } else if(tipo === 'celular') { ctx.fillStyle = '#000'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#2196f3'; ctx.fillRect(20,40,216,176); 
+    } else if(tipo === 'colar') { ctx.clearRect(0,0,256,256); ctx.strokeStyle = '#ffeb3b'; ctx.lineWidth = 15; ctx.beginPath(); ctx.arc(128, 128, 100, 0, Math.PI*2); ctx.stroke(); ctx.fillStyle = '#f44336'; ctx.beginPath(); ctx.arc(128, 228, 30, 0, Math.PI*2); ctx.fill();
+    } else if(tipo === 'sofa') { ctx.fillStyle = '#b71c1c'; ctx.fillRect(0,0,256,256); ctx.strokeStyle = '#7f0000'; ctx.lineWidth = 4; for(let i=0; i<256; i+=32) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,256); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(256,i); ctx.stroke(); }
+    } else if(tipo === 'madeira') { ctx.fillStyle = '#4e342e'; ctx.fillRect(0,0,256,256); ctx.strokeStyle = '#3e2723'; ctx.lineWidth = 2; for(let i=0; i<256; i+=16) { ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(256,i); ctx.stroke(); }
+    } else if(tipo === 'azulejo') { ctx.fillStyle = '#e0f7fa'; ctx.fillRect(0,0,256,256); ctx.strokeStyle = '#b2ebf2'; ctx.lineWidth = 4; for(let i=0; i<=256; i+=64) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,256); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(256,i); ctx.stroke(); }
+    } else if(tipo === 'porcelana') { ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,256,256); 
+    } else if(tipo === 'tapete') { ctx.fillStyle = '#00695c'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#004d40'; ctx.fillRect(20,20,216,216);
+    } else if(tipo === 'carro_fallback') { ctx.fillStyle = '#d32f2f'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#111'; ctx.fillRect(20, 100, 216, 50); ctx.strokeStyle = '#b71c1c'; ctx.lineWidth = 10; ctx.strokeRect(0,0,256,256); 
+    } else if(tipo === 'carro_solido') { ctx.fillStyle = '#d32f2f'; ctx.fillRect(0,0,256,256); 
+    } else if(tipo === 'asfalto') { ctx.fillStyle = '#212121'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#ffeb3b'; for(let x=0; x<256; x+=60) ctx.fillRect(x, 120, 40, 16); 
+    } else if(tipo === 'calcada') { ctx.fillStyle = '#9e9e9e'; ctx.fillRect(0,0,256,256); ctx.strokeStyle = '#616161'; ctx.lineWidth = 4; for(let i=0; i<=256; i+=64) { ctx.strokeRect(i,0,64,256); ctx.strokeRect(0,i,256,64); }
+    } else if(tipo === 'folhas') { ctx.fillStyle = '#1b5e20'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#2e7d32'; for(let i=0; i<300; i++) { ctx.beginPath(); ctx.arc(Math.random()*256, Math.random()*256, Math.random()*10+5, 0, Math.PI*2); ctx.fill(); }
+    } else if(tipo === 'tronco') { ctx.fillStyle = '#3e2723'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#4e342e'; for(let x=0; x<256; x+=20) ctx.fillRect(x,0,10,256); 
+    } else if(tipo === 'policia_roupa') { ctx.fillStyle = '#152238'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#0a111c'; for(let y=0; y<256; y+=40) ctx.fillRect(0,y,256,10); 
+    } else if(tipo === 'sol') { ctx.fillStyle = '#ffeb3b'; ctx.beginPath(); ctx.arc(128,128,120,0,Math.PI*2); ctx.fill(); 
+    // Texturas Cofre, Ouro, Papel
+    } else if(tipo === 'cofre_porta') { 
+        ctx.fillStyle = '#e0e0e0'; ctx.fillRect(0,0,256,256); 
+        ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(128, 128, 110, 0, Math.PI*2); ctx.fill(); 
+        ctx.strokeStyle = '#9e9e9e'; ctx.lineWidth = 15; ctx.stroke(); 
+        ctx.fillStyle = '#424242'; ctx.beginPath(); ctx.arc(128, 128, 25, 0, Math.PI*2); ctx.fill(); 
+        ctx.fillRect(128, 118, 50, 20); 
+    } else if(tipo === 'ouro') { ctx.fillStyle = '#ffca28'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#fff59d'; for(let y=0; y<256; y+=30) ctx.fillRect(0,y,256,5);
+    } else if(tipo === 'papel') { ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#000000'; for(let y=40; y<200; y+=40) ctx.fillRect(20, y, 216, 4); }
+
+    const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c); gl.generateMipmap(gl.TEXTURE_2D); return tex;
+}
+
+const texturas = { 
+    parede: criarTextura('parede'), parede_ext: criarTextura('parede_ext'), chao: criarTextura('chao'), 
+    grama: criarTextura('grama'), cama: criarTextura('cama'), telhado: criarTextura('telhado'), 
+    porta_ext: criarTextura('porta_ext'), pele: criarTextura('pele'), pijama: criarTextura('pijama'),
+    tv: criarTextura('tv'), celular: criarTextura('celular'), colar: criarTextura('colar'),
+    sofa: criarTextura('sofa'), madeira: criarTextura('madeira'), azulejo: criarTextura('azulejo'),
+    porcelana: criarTextura('porcelana'), tapete: criarTextura('tapete'), 
+    carro_fallback: criarTextura('carro_fallback'), carro_solido: criarTextura('carro_solido'),
+    asfalto: criarTextura('asfalto'), calcada: criarTextura('calcada'), folhas: criarTextura('folhas'), tronco: criarTextura('tronco'),
+    policia_roupa: criarTextura('policia_roupa'), sol: criarTextura('sol'), cofre_porta: criarTextura('cofre_porta'), ouro: criarTextura('ouro'), papel: criarTextura('papel')
+};
+
+// --- MODELOS OBJ ---
+let modeloVovoCustomizado = null;
+let modeloCarroObj = null;
+
+async function carregarMTL(url) {
+    const materiais = {};
+    try {
+        const response = await fetch(url);
+        if (!response.ok) return materiais;
+        const text = await response.text();
+        
+        let currentMtl = null;
+        const lines = text.split('\n');
+        
+        for (let line of lines) {
+            line = line.trim();
+            if (line.startsWith('newmtl ')) {
+                currentMtl = line.substring(7).trim();
+                materiais[currentMtl] = { textura: null };
+            } else if (line.startsWith('map_Kd ') && currentMtl) {
+                const imgSrc = line.substring(7).trim();
+                const tex = gl.createTexture();
+                
+                gl.bindTexture(gl.TEXTURE_2D, tex);
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([150, 150, 150, 255]));
+                
+                const img = new Image();
+                img.src = imgSrc;
+                img.onload = () => {
+                    gl.bindTexture(gl.TEXTURE_2D, tex);
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+                    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+                };
+                materiais[currentMtl].textura = tex;
+            }
+        }
+    } catch(e) {}
+    return materiais;
+}
+
+async function carregarModeloOBJ(url) {
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("Arquivo OBJ não encontrado.");
+        
+        const text = await response.text();
+        const positions = [[0,0,0]], uvs = [[0,0]], normals = [[0,0,0]];
+        
+        let materiaisGlobais = {};
+        let currentMtl = "default";
+        const gruposVertexData = {}; 
+        
+        const lines = text.split('\n');
+        for (let line of lines) {
+            line = line.trim();
+            if (line.length === 0 || line.startsWith('#')) continue;
+            
+            if (line.startsWith('mtllib ')) {
+                const mtlFile = line.substring(7).trim();
+                materiaisGlobais = await carregarMTL(mtlFile);
+            } 
+            else if (line.startsWith('usemtl ')) {
+                currentMtl = line.substring(7).trim();
+                if (!gruposVertexData[currentMtl]) gruposVertexData[currentMtl] = [];
+            }
+            else if (line.startsWith('v ')) {
+                const parts = line.split(/\s+/);
+                positions.push([parseFloat(parts[1]), parseFloat(parts[2]), parseFloat(parts[3])]);
+            } else if (line.startsWith('vt ')) {
+                const parts = line.split(/\s+/);
+                let u = parseFloat(parts[1]);
+                let v = parts.length > 2 ? parseFloat(parts[2]) : 0;
+                uvs.push([u, 1.0 - v]);
+            } else if (line.startsWith('vn ')) {
+                const parts = line.split(/\s+/);
+                normals.push([parseFloat(parts[1]), parseFloat(parts[2]), parseFloat(parts[3])]);
+            } else if (line.startsWith('f ')) {
+                const parts = line.split(/\s+/);
+                if (!gruposVertexData[currentMtl]) gruposVertexData[currentMtl] = [];
+                
+                for (let i = 2; i < parts.length - 1; i++) {
+                    const trinca = [1, i, i + 1];
+                    for (let idx of trinca) {
+                        if (!parts[idx]) continue;
+                        const indices = parts[idx].split('/');
+                        const v = positions[parseInt(indices[0])] || [0,0,0];
+                        const t = indices[1] ? (uvs[parseInt(indices[1])] || [0,0]) : [0,0];
+                        const n = indices[2] ? (normals[parseInt(indices[2])] || [0,1,0]) : [0,1,0];
+                        
+                        gruposVertexData[currentMtl].push(v[0], v[1], v[2], t[0], t[1], n[0], n[1], n[2]);
+                    }
+                }
+            }
+        }
+
+        const partesRenderizaveis = [];
+        for (const mat in gruposVertexData) {
+            const floatArray = new Float32Array(gruposVertexData[mat]);
+            const vao = gl.createVertexArray();
+            gl.bindVertexArray(vao);
+            
+            const vboObj = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, vboObj);
+            gl.bufferData(gl.ARRAY_BUFFER, floatArray, gl.STATIC_DRAW);
+            
+            gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0);
+            gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 32, 12);
+            gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 32, 20);
+
+            partesRenderizaveis.push({
+                vao: vao,
+                vertexCount: floatArray.length / 8,
+                textura: materiaisGlobais[mat] ? materiaisGlobais[mat].textura : null
+            });
+        }
+        return partesRenderizaveis;
+    } catch(e) {
+        return null;
+    }
+}
+
+carregarModeloOBJ('vovo.obj').then(modeloArray => { modeloVovoCustomizado = modeloArray; });
+carregarModeloOBJ('Chevrolet_Camaro_SS_High.obj').then(modeloArray => { modeloCarroObj = modeloArray; });
+
+// --- LEVEL DESIGN E COLISÃO ---
+const paredes = [
+    { x: -20, z: -20, w: 0.5, d: 50 }, { x: 20, z: -20, w: 0.5, d: 50 }, 
+    { x: 0, z: -45.0, w: 40.5, d: 0.5 }, 
+    { x: -11, z: 5, w: 18, d: 0.5 }, { x: 11, z: 5, w: 18, d: 0.5 },  
+    { x: -11, z: -12, w: 18, d: 0.5 }, { x: 11, z: -12, w: 18, d: 0.5 },  
+    { x: -11, z: -28, w: 18, d: 0.5 }, { x: 11, z: -28, w: 18, d: 0.5 },  
+    { x: 8, z: -17, w: 0.5, d: 10 }, { x: 8, z: -26.5, w: 0.5, d: 3 } 
+];
+
+// Adicionando colisão nas casas da Vila para não atravessar
+for(let zVila=25; zVila<=125; zVila+=20) {
+    paredes.push({ x: -18, z: zVila, w: 12, d: 12 });
+    paredes.push({ x: 18, z: zVila, w: 12, d: 12 });
+}
+
+const moveisFisica = [
+    { id: 'carro_fuga', x: 0, z: 42, y: 0.75, w: 4, d: 8, h: 1.5, tex: texturas.carro_fallback, rot: 0 },
+    { x: 0, z: -42.5, y: 0.3, w: 5, d: 5, h: 0.6, tex: texturas.cama, rot: 0 }, 
+    { x: 16, z: -40, y: 1.5, w: 4, d: 8, h: 3, tex: texturas.madeira, rot: 0 }, 
+    { x: -6, z: -42.5, y: 0.4, w: 2, d: 2, h: 0.8, tex: texturas.madeira, rot: 0 }, 
+    { x: -16, z: -32, y: 0.7, w: 4, d: 2, h: 1.4, tex: texturas.madeira, rot: 0 }, 
+    { x: 16, z: -25, y: 0.4, w: 4, d: 6, h: 0.8, tex: texturas.porcelana, rot: 0 }, 
+    { x: 18, z: -14, y: 0.4, w: 1.5, d: 2, h: 0.8, tex: texturas.porcelana, rot: 0 }, 
+    { x: 18, z: -13.2, y: 1.0, w: 1.5, d: 0.5, h: 1.0, tex: texturas.porcelana, rot: 0 }, 
+    { x: 10, z: -13, y: 0.7, w: 3, d: 1.5, h: 1.4, tex: texturas.porcelana, rot: 0 }, 
+    { x: -10, z: -2, y: 0.5, w: 6, d: 2, h: 1, tex: texturas.sofa, rot: 0 }, 
+    { x: -10, z: -1.2, y: 1.0, w: 6, d: 0.5, h: 1, tex: texturas.sofa, rot: 0 }, 
+    { x: -16, z: -6, y: 0.5, w: 2, d: 6, h: 1, tex: texturas.sofa, rot: 0 }, 
+    { x: -16.8, z: -6, y: 1.0, w: 0.5, d: 6, h: 1, tex: texturas.sofa, rot: 0 }, 
+    { x: -10, z: -11.2, y: 0.5, w: 5, d: 1.5, h: 1, tex: texturas.madeira, rot: 0 }, 
+];
+
+const cenarioDecorativo = [
+    { x: 14, z: -20, y: -0.44, w: 12, d: 16, h: 0.1, tex: texturas.azulejo }, 
+    { x: -12, z: -6, y: -0.44, w: 10, d: 8, h: 0.1, tex: texturas.tapete } 
+];
+
+let portasInt = [
+    { id: 0, hinge: [-2, 1.75, -12], width: 4, angle: 0, targetAngle: 0, aberta: false }, 
+    { id: 1, hinge: [-2, 1.75, -28], width: 4, angle: 0, targetAngle: 0, aberta: false } 
+];
+
+let portaExt = { angle: 0, targetAngle: 0 };
+
+let objetosEstaticos = [
+    { pos: [-10, 1.6, -11], scale: [2.0, 1.2, 0.2], tex: texturas.tv }, 
+    { pos: [-6, 0.85, -42.5], scale: [0.3, 0.05, 0.5], tex: texturas.celular }, 
+    { pos: [-16, 1.45, -32], scale: [0.6, 0.05, 0.6], tex: texturas.colar }  
+];
+
+let cofre = { pos: [-9.5, 1.5, -44.8], angle: 0, targetAngle: 0, aberto: false };
+let tentativasSenha = 0;
+let digitandoSenha = false;
+
+let itens = [
+    { pos: [-10.0, 1.0, -44.9], scale: [0.8, 0.5, 0.8], tex: texturas.ouro, roubado: false }, 
+    { pos: [-9.0, 1.0, -44.9], scale: [0.8, 0.5, 0.8], tex: texturas.ouro, roubado: false }, 
+    { pos: [-9.5, 1.6, -44.9], scale: [0.8, 0.5, 0.8], tex: texturas.ouro, roubado: false }  
+];
+
+let papeis = [
+    { pos: [-10, 1.1, -2], texto: "Dica 1: Quanto é 4 + 2 ?" },
+    { pos: [10, 1.5, -13], texto: "Dica 2: Quanto é 18 / 3 ?" },
+    { pos: [-16, 1.5, -32], texto: "Dica 3: Quanto é 666 - 660 ?" }
+];
+
+function colideComParedes(nx, nz) {
+    let r = 0.4; 
+    for(let p of paredes) if(nx+r > p.x-p.w/2 && nx-r < p.x+p.w/2 && nz+r > p.z-p.d/2 && nz-r < p.z+p.d/2) return true;
+    for(let m of moveisFisica) if(nx+r > m.x-m.w/2 && nx-r < m.x+m.w/2 && nz+r > m.z-m.d/2 && nz-r < m.z+m.d/2) return true;
+    for(let p of portasInt) {
+        if(!p.aberta) {
+            let dw = p.width; let px = p.hinge[0] + dw/2; let pz = p.hinge[2];
+            if(nx+r > px-dw/2 && nx-r < px+dw/2 && nz+r > pz-0.3 && nz-r < pz+0.3) return true;
+        }
+    }
+    if(!cofre.aberto && nx+r > cofre.pos[0]-1.5 && nx-r < cofre.pos[0]+1.5 && nz+r > cofre.pos[2]-0.2 && nz-r < cofre.pos[2]+0.2) return true;
+    return false;
+}
+
+// --- ESTADOS DO JOGO ---
+let estadoJogo = "MENU"; 
+let ambiente = "EXTERIOR"; 
+let cutsceneRodando = false;
+let donoDaCasa = { pos: [0, 0.6, -42.0], speed: 0.06, estado: "DORMINDO" }; 
+let posPolicia = [0, 0.0, 12.0]; 
+let animacaoPoliciaAndando = false;
+let lanternaLigada = false;
+
+let introFase = 0;
+let estadoAnterior = "MENU";
+let timeoutsIntro = [];
+
+let itemNaMao = false;
+let itensNoCarro = 0;
+
+let nivelBarulho = 0.0;
+const BARULHO_MAX = 100.0;
+let tempoAmanhecer = 90.0;
+let lastTime = 0; 
+
+// --- CÂMERA E CONTROLES ---
+let camPos = vec3.fromValues(0, 1.7, 42); 
+let camFront = vec3.fromValues(0, 0, -1);
+let camUp = vec3.fromValues(0, 1, 0);
+let yaw = -90.0, pitch = 0.0;
+let keys = {};
+let playerControlavel = true;
+let avisoTemporario = false; 
+    
+let camPosSalva = vec3.create();
+let yawSalvo = 0;
+let pitchSalvo = 0;
+
+const uiAviso = document.getElementById("aviso");
+const uiItens = document.getElementById("hud-itens");
+const uiAmbiente = document.getElementById("hud-ambiente");
+const uiTempo = document.getElementById("hud-tempo");
+
+function mostrarAvisoTemporario(texto, cor, tempo) {
+    uiAviso.innerText = texto; uiAviso.style.color = cor; uiAviso.classList.remove("hidden"); avisoTemporario = true;
+    setTimeout(() => { avisoTemporario = false; }, tempo);
+}
+
+function addIntroTimeout(fn, delay) { timeoutsIntro.push(setTimeout(fn, delay)); }
+
+document.addEventListener('pointerlockchange', () => {
+    if (document.pointerLockElement === canvas) {
+        if(digitandoSenha) {
+            document.getElementById("senha-ui").classList.add("hidden");
+            digitandoSenha = false;
+        }
+        if (estadoJogo === "PAUSADO") {
+            estadoJogo = estadoAnterior; 
+            document.getElementById("menu-pause").style.display = "none";
+            lastTime = performance.now(); 
+        }
+    } else {
+        if (!digitandoSenha && (estadoJogo === "JOGANDO" || estadoJogo === "INTRO" || estadoJogo === "CUTSCENE" || estadoJogo === "CUTSCENE_POLICIA" || estadoJogo === "CUTSCENE_VITORIA")) {
+            estadoAnterior = estadoJogo;
+            estadoJogo = "PAUSADO";
+            document.getElementById("menu-pause").style.display = "flex";
+            keys = {};
+        }
+    }
+});
+
+document.getElementById("btn-continuar").addEventListener("click", () => {
+    try { canvas.requestPointerLock(); } catch(e) {}
+});
+
+document.getElementById("btn-reiniciar-pause").addEventListener("click", () => {
+    document.getElementById("menu-pause").style.display = "none";
+    document.getElementById("btn-iniciar").click(); 
+});
+
+document.getElementById("btn-senha").addEventListener("click", () => {
+    let val = document.getElementById("input-senha").value;
+    if (val === "666") {
+        cofre.aberto = true;
+        cofre.targetAngle = Math.PI / 2;
+        document.getElementById("senha-ui").classList.add("hidden");
+        digitandoSenha = false;
+        canvas.requestPointerLock();
+        mostrarAvisoTemporario("Cofre aberto! Pegue sua herança de volta.", "#4caf50", 4000);
+    } else {
+        tentativasSenha++;
+        if (tentativasSenha >= 3) {
+            document.getElementById("senha-ui").classList.add("hidden");
+            digitandoSenha = false;
+            canvas.requestPointerLock();
+            rodarCutsceneAcordar();
+        } else {
+            document.getElementById("erro-senha").innerText = "INCORRETA! Tentativas: " + (3 - tentativasSenha);
+        }
+    }
+});
+
+document.getElementById("btn-iniciar").addEventListener("click", () => {
+    document.getElementById("menu").classList.add("hidden");
+    try { canvas.requestPointerLock(); } catch(e) {}
+    iniciarIntro();
+});
+
+function iniciarIntro() {
+    estadoJogo = "INTRO";
+    introFase = 0;
+    playerControlavel = false;
+    ambiente = "EXTERIOR"; 
+    timeoutsIntro.forEach(clearTimeout);
+    timeoutsIntro = [];
+    
+    portaExt.targetAngle = 0;
+    portaExt.angle = 0;
+
+    camPos = vec3.fromValues(-10, 8, 25); 
+    yaw = -45.0; pitch = -20.0; 
+    
+    donoDaCasa.pos = [0, 0.0, 25.0]; 
+    donoDaCasa.estado = "CAÇANDO"; 
+    
+    portasInt.forEach(p => { p.aberta = false; p.targetAngle = 0; p.angle = 0; });
+    
+    document.getElementById("ui").classList.add("hidden");
+    document.getElementById("crosshair").classList.add("hidden");
+    document.getElementById("tela-preta-intro").classList.add("hidden");
+    document.getElementById("skip-intro").classList.remove("hidden");
+
+    uiAviso.innerText = '"Roubei a herança daquele otário, agora é dormir e depois lavar esse dinheiro"'; 
+    uiAviso.style.color = "#fff"; 
+    uiAviso.classList.remove("hidden");
+    
+    lastTime = performance.now();
+}
+
+function iniciarJogoReal() {
+    estadoJogo = "JOGANDO"; ambiente = "EXTERIOR"; playerControlavel = true; donoDaCasa.estado = "DORMINDO"; cutsceneRodando = false; 
+    nivelBarulho = 0.0; tempoAmanhecer = 90.0; lastTime = performance.now();
+    itemNaMao = false; itensNoCarro = 0; tentativasSenha = 0; cofre.aberto = false; cofre.angle = 0; cofre.targetAngle = 0;
+    
+    lanternaLigada = false;
+    document.getElementById("hud-lanterna").innerText = "DESLIGADA";
+    document.getElementById("hud-lanterna").style.color = "#fff";
+
+    portaExt.targetAngle = 0; portaExt.angle = 0;
+    let carro = moveisFisica.find(m => m.id === 'carro_fuga');
+    if(carro) { carro.x = 0; carro.z = 42; }
+    
+    document.getElementById("hud-mao").innerText = "VAZIAS"; document.getElementById("hud-mao").style.color = "#fff";
+    
+    yaw = -90.0; pitch = 0.0; camPos = vec3.fromValues(0, 1.7, 42); donoDaCasa.pos = [0, 0.6, -42.0]; itens.forEach(i => i.roubado = false); portasInt.forEach(p => {p.aberta=false; p.targetAngle=0; p.angle=0;}); uiAmbiente.innerText = "EXTERIOR (NOITE)"; uiAviso.classList.add("hidden"); uiAviso.style.color = "#ffeb3b"; uiItens.innerText = "0"; avisoTemporario = false;
+
+    document.getElementById("ui").classList.remove("hidden");
+    document.getElementById("crosshair").classList.remove("hidden");
+    document.getElementById("tela-preta-intro").classList.add("hidden");
+    document.getElementById("skip-intro").classList.add("hidden");
+}
+
+document.addEventListener('mousemove', e => {
+    if (document.pointerLockElement === canvas && playerControlavel && estadoJogo === "JOGANDO" && !digitandoSenha) {
+        yaw += e.movementX * 0.1; pitch -= e.movementY * 0.1;
+        if (pitch > 89.0) pitch = 89.0; if (pitch < -89.0) pitch = -89.0;
+    }
+});
+
+window.onkeydown = e => { 
+    let key = e.key.toLowerCase();
+    keys[key] = true; 
+
+    if (estadoJogo === "INTRO" && key === 'f') {
+        introFase = 99; 
+        timeoutsIntro.forEach(clearTimeout);
+        timeoutsIntro = [];
+        cofre.aberto = false;
+        cofre.targetAngle = 0;
+        uiAviso.classList.add("hidden");
+        iniciarJogoReal();
+        return;
+    }
+
+    if (key === 'p' && (estadoJogo === "JOGANDO" || estadoJogo === "INTRO" || estadoJogo === "CUTSCENE" || estadoJogo === "CUTSCENE_POLICIA" || estadoJogo === "CUTSCENE_VITORIA")) document.exitPointerLock();
+    
+    // Controle da Lanterna
+    if (key === 'x' && estadoJogo === "JOGANDO" && playerControlavel && !digitandoSenha) {
+        lanternaLigada = !lanternaLigada;
+        document.getElementById("hud-lanterna").innerText = lanternaLigada ? "LIGADA" : "DESLIGADA";
+        document.getElementById("hud-lanterna").style.color = lanternaLigada ? "#ffeb3b" : "#fff";
+    }
+
+    if(estadoJogo === "JOGANDO" && playerControlavel && !digitandoSenha) processarAcaoKeys(e); 
+};
+window.onkeyup = e => keys[e.key.toLowerCase()] = false;
+
+function processarAcaoKeys(e) {
+    let key = e.key.toLowerCase();
+    let acaoRealizada = false;
+
+    if(key === 'f') {
+        if (ambiente === "EXTERIOR" && vec3.distance(camPos, [0, 1.7, 5.5]) < 5.0) {
+            ambiente = "INTERIOR"; uiAmbiente.innerText = "INTERIOR DA CASA (SHHH!)"; camPos = vec3.fromValues(0, 1.7, 4.0);
+        } 
+        else if (ambiente === "INTERIOR" && vec3.distance(camPos, [0, 1.7, 5.5]) < 5.0) { 
+            ambiente = "EXTERIOR"; 
+            camPos = vec3.fromValues(0, 1.7, 7.0);
+            
+            if (tempoAmanhecer <= 0) {
+                uiAmbiente.innerText = "EXTERIOR (DIA)";
+                rodarCutscenePolicia();
+            } else {
+                uiAmbiente.innerText = "EXTERIOR (NOITE)";
+            }
+        }
+        
+        if(ambiente === "INTERIOR") {
+            portasInt.forEach(p => {
+                let cx = p.hinge[0] + p.width/2;
+                if(vec3.distance(camPos, [cx, 1.7, p.hinge[2]]) < 4.0) {
+                    p.aberta = !p.aberta; p.targetAngle = p.aberta ? Math.PI/2 : 0;
+                }
+            });
+        }
+    }
+    
+    if(key === 'e') {
+        if (!acaoRealizada && ambiente === "INTERIOR") {
+            for(let p of papeis) {
+                if(vec3.distance(camPos, p.pos) < 2.5) {
+                    mostrarAvisoTemporario(p.texto, "#fff", 5000);
+                    acaoRealizada = true;
+                    break;
+                }
+            }
+        }
+
+        if (!acaoRealizada && ambiente === "INTERIOR" && !cofre.aberto && vec3.distance(camPos, cofre.pos) < 3.5) {
+            digitandoSenha = true;
+            document.exitPointerLock();
+            document.getElementById("senha-ui").classList.remove("hidden");
+            document.getElementById("input-senha").value = "";
+            document.getElementById("erro-senha").innerText = "";
+            document.getElementById("input-senha").focus();
+            acaoRealizada = true;
+        }
+
+        if (!acaoRealizada && ambiente === "INTERIOR" && cofre.aberto && !itemNaMao) {
+            for(let item of itens) { 
+                if(!item.roubado && vec3.distance(camPos, item.pos) < 3.0) { 
+                    item.roubado = true; 
+                    itemNaMao = true;
+                    document.getElementById("hud-mao").innerText = "OCUPADAS (LEVE O OURO)";
+                    document.getElementById("hud-mao").style.color = "#ffeb3b";
+                    mostrarAvisoTemporario("Pilha de Ouro na mão! Leve para o carro.", "#4caf50", 3000);
+                    acaoRealizada = true;
+                    break;
+                } 
+            }
+        } 
+
+        if (!acaoRealizada && ambiente === "EXTERIOR" && itemNaMao) {
+            let posCarro = [0, 1.7, 42]; 
+            if (vec3.distance(camPos, posCarro) < 6.0) {
+                itemNaMao = false;
+                itensNoCarro++;
+                document.getElementById("hud-itens").innerText = itensNoCarro;
+                document.getElementById("hud-mao").innerText = "VAZIAS";
+                document.getElementById("hud-mao").style.color = "#fff";
+                
+                if(itensNoCarro === itens.length) {
+                    rodarCutsceneVitoria();
+                } else {
+                    mostrarAvisoTemporario("Ouro no porta-malas! Faltam " + (itens.length - itensNoCarro) + ".", "#4caf50", 3000);
+                }
+            }
+        }
+    }
+}
+
+function rodarCutsceneVitoria() {
+    if(cutsceneRodando && estadoJogo === "CUTSCENE_VITORIA") return;
+    cutsceneRodando = true;
+    estadoJogo = "CUTSCENE_VITORIA";
+    playerControlavel = false;
+    
+    document.getElementById("ui").classList.add("hidden");
+    document.getElementById("crosshair").classList.add("hidden");
+    document.getElementById("hud-barulho").classList.add("hidden");
+    
+    uiAviso.innerText = "VOCÊ RECUPEROU TUDO! FUGINDO..."; 
+    uiAviso.style.color = "#4caf50"; 
+    uiAviso.classList.remove("hidden");
+}
+
+function finalizarJogo(resultado) { 
+    estadoAnterior = resultado;
+    estadoJogo = resultado; 
+    document.exitPointerLock(); 
+    document.getElementById("menu").classList.remove("hidden"); document.getElementById("btn-iniciar").innerText = "JOGAR NOVAMENTE"; 
+    document.getElementById("hud-barulho").classList.add("hidden");
+    document.getElementById("skip-intro").classList.add("hidden");
+    if(resultado === "GAMEOVER") { 
+        document.getElementById("titulo-tela").innerText = "GAME OVER"; document.getElementById("desc-tela").innerText = "O velho acordou e te pegou em flagrante!"; document.getElementById("titulo-tela").style.color = "#d32f2f"; 
+    } else if (resultado === "GAMEOVER_POLICIA") {
+        document.getElementById("titulo-tela").innerText = "VOCÊ ESTÁ PRESO!"; document.getElementById("desc-tela").innerText = "O dia clareou e a polícia já estava te esperando lá fora!"; document.getElementById("titulo-tela").style.color = "#2196f3"; 
+    } else { 
+        document.getElementById("titulo-tela").innerText = "MISSÃO CUMPRIDA"; document.getElementById("desc-tela").innerText = "Você recuperou toda a herança e fugiu com sucesso!"; document.getElementById("titulo-tela").style.color = "#4caf50"; 
+    } 
+}
+
+function desenhaObjeto(vpMatrix, pos, scale, texturaObj, rotY = 0, modeloCustomizado = null, rotX = 0, rotZ = 0, useSolid = false, solidCol = [1,0,0,1]) {
+    if (!vpMatrix || !pos || !scale || pos.length < 3 || scale.length < 3) return; 
+
+    let model = mat4.create(); 
+    mat4.translate(model, model, pos); 
+    mat4.rotateY(model, model, rotY || 0); 
+    mat4.rotateX(model, model, rotX || 0); 
+    mat4.rotateZ(model, model, rotZ || 0); 
+    mat4.scale(model, model, scale);
+    
+    let mvp = mat4.create(); 
+    mat4.multiply(mvp, vpMatrix, model);
+
+    if (matLoc !== null) gl.uniformMatrix4fv(matLoc, false, mvp); 
+    if (modelLoc !== null) gl.uniformMatrix4fv(modelLoc, false, model); 
+    
+    gl.uniform1i(useSolidLoc, useSolid ? 1 : 0);
+    if(useSolid) gl.uniform4fv(solidColLoc, solidCol);
+
+    if (modeloCustomizado && Array.isArray(modeloCustomizado)) {
+        for (let parte of modeloCustomizado) {
+            let texParaUsar = parte.textura ? parte.textura : texturaObj;
+            
+            gl.activeTexture(gl.TEXTURE0); 
+            gl.bindTexture(gl.TEXTURE_2D, texParaUsar); 
+            if (texLoc !== null) gl.uniform1i(texLoc, 0);
+
+            gl.bindVertexArray(parte.vao);
+            gl.drawArrays(gl.TRIANGLES, 0, parte.vertexCount);
+        }
+    } else {
+        gl.activeTexture(gl.TEXTURE0); 
+        gl.bindTexture(gl.TEXTURE_2D, texturaObj); 
+        if (texLoc !== null) gl.uniform1i(texLoc, 0);
+
+        gl.bindVertexArray(vao);
+        gl.drawElements(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0);
+    }
+}
+
+function desenhaParteCorpoFallback(vp, basePos, localOffset, scale, tex, rotY) {
+    if (!basePos || basePos.length < 3) return; 
+    let gx = basePos[0] + localOffset[0] * Math.cos(rotY) + localOffset[2] * Math.sin(rotY);
+    let gz = basePos[2] - localOffset[0] * Math.sin(rotY) + localOffset[2] * Math.cos(rotY);
+    let gy = basePos[1] + localOffset[1];
+    desenhaObjeto(vp, [gx, gy, gz], scale, tex, rotY); 
+}
+
+function desenhaVelhinho(vp, pos, estado, rotY, now) {
+    if (modeloVovoCustomizado) {
+        let animY = 0;
+        let tiltZ = 0; 
+        let escalaVovoObj = [0.015, 0.015, 0.015]; 
+        let fixX_EmPe = 0; 
+        let fixX_Deitado = -Math.PI / 2; 
+
+        if (estado === "DORMINDO") {
+            desenhaObjeto(vp, [pos[0], pos[1] + 0.1, pos[2]], escalaVovoObj, texturas.pijama, Math.PI / 2, modeloVovoCustomizado, fixX_Deitado);
+        } else {
+            animY = estado === "CAÇANDO" ? Math.abs(Math.sin(now / 150)) * 0.15 : 0;
+            tiltZ = estado === "CAÇANDO" ? Math.sin(now / 150) * 0.15 : 0;
+            desenhaObjeto(vp, [pos[0], pos[1] + 0.0 + animY, pos[2]], escalaVovoObj, texturas.pijama, rotY, modeloVovoCustomizado, fixX_EmPe, tiltZ);
+        }
+    } else {
+        if (estado === "DORMINDO") {
+            desenhaParteCorpoFallback(vp, pos, [0, 0.4, 0.6], [0.4, 0.4, 0.4], texturas.pele, rotY); 
+            desenhaParteCorpoFallback(vp, pos, [0, 0.35, 0], [0.6, 0.3, 0.8], texturas.pijama, rotY); 
+            desenhaParteCorpoFallback(vp, pos, [0, 0.35, -0.6], [0.5, 0.25, 0.6], texturas.pijama, rotY); 
+        } else {
+            let walkAnim = estado === "CAÇANDO" ? Math.sin((now || 0) / 150) * 0.4 : 0; 
+            desenhaParteCorpoFallback(vp, pos, [0, 1.4, 0], [0.4, 0.4, 0.4], texturas.pele, rotY); 
+            desenhaParteCorpoFallback(vp, pos, [0, 0.8, 0], [0.6, 0.8, 0.4], texturas.pijama, rotY); 
+            desenhaParteCorpoFallback(vp, pos, [-0.2, 0.3, walkAnim], [0.3, 0.6, 0.3], texturas.pijama, rotY); 
+            desenhaParteCorpoFallback(vp, pos, [0.2, 0.3, -walkAnim], [0.3, 0.6, 0.3], texturas.pijama, rotY); 
+            
+            let bracoAnim = estado === "CAÇANDO" ? 0.3 : 0.0;
+            desenhaParteCorpoFallback(vp, pos, [-0.4, 1.0, bracoAnim], [0.2, 0.2, 0.6], texturas.pele, rotY); 
+            desenhaParteCorpoFallback(vp, pos, [0.4, 1.0, bracoAnim], [0.2, 0.2, 0.6], texturas.pele, rotY); 
+        }
+    }
+}
+
+function desenhaPolicial(vp, pos, rotY, animando = false, now = 0) {
+    let walkAnim = animando ? Math.sin(now / 150) * 0.4 : 0;
+    desenhaParteCorpoFallback(vp, pos, [0, 1.4, 0], [0.4, 0.4, 0.4], texturas.pele, rotY); 
+    desenhaParteCorpoFallback(vp, pos, [0, 1.65, 0], [0.45, 0.1, 0.45], texturas.policia_roupa, rotY); 
+    desenhaParteCorpoFallback(vp, pos, [0, 1.62, 0.15], [0.45, 0.05, 0.3], null, rotY, 0, 0, true, [0.05, 0.05, 0.05, 1.0]); 
+    desenhaParteCorpoFallback(vp, pos, [0, 0.8, 0], [0.6, 0.8, 0.4], texturas.policia_roupa, rotY); 
+    
+    // Pernas animadas
+    desenhaParteCorpoFallback(vp, pos, [-0.2, 0.3, walkAnim], [0.3, 0.6, 0.3], null, rotY, 0, 0, true, [0.05, 0.05, 0.05, 1.0]); 
+    desenhaParteCorpoFallback(vp, pos, [0.2, 0.3, -walkAnim], [0.3, 0.6, 0.3], null, rotY, 0, 0, true, [0.05, 0.05, 0.05, 1.0]); 
+    
+    // Braços com balanço leve
+    let bracoAnim = animando ? 0.2 : 0;
+    desenhaParteCorpoFallback(vp, pos, [-0.4, 1.0, 0.1 + bracoAnim], [0.2, 0.6, 0.2], texturas.policia_roupa, rotY); 
+    desenhaParteCorpoFallback(vp, pos, [0.4, 1.0, 0.1 - bracoAnim], [0.2, 0.6, 0.2], texturas.policia_roupa, rotY); 
+    desenhaParteCorpoFallback(vp, pos, [-0.4, 0.65, 0.1 + bracoAnim], [0.15, 0.15, 0.15], texturas.pele, rotY);
+    desenhaParteCorpoFallback(vp, pos, [0.4, 0.65, 0.1 - bracoAnim], [0.15, 0.15, 0.15], texturas.pele, rotY);
+}
+
+function rodarCutscenePolicia() {
+    if(cutsceneRodando && estadoJogo === "CUTSCENE_POLICIA") return;
+    cutsceneRodando = true;
+    estadoJogo = "CUTSCENE_POLICIA";
+    playerControlavel = false;
+    
+    document.getElementById("hud-barulho").classList.add("hidden");
+    uiAviso.classList.add("hidden");
+
+    camPos[0] = 0; camPos[1] = 1.7; camPos[2] = 8.0; 
+    
+    // 1. Foca na Lua (Mantém a noite temporariamente no render)
+    tempoAmanhecer = 0.1; 
+    let dxLua = 25 - camPos[0], dzLua = 80 - camPos[2], dyLua = 30 - camPos[1];
+    yaw = Math.atan2(dzLua, dxLua) * (180 / Math.PI);
+    pitch = Math.atan2(dyLua, Math.sqrt(dxLua*dxLua + dzLua*dzLua)) * (180 / Math.PI);
+
+    setTimeout(() => {
+        // 2. Amanhece (Pula para o dia e foca no Sol)
+        tempoAmanhecer = 0; 
+        let dySol = 40 - camPos[1];
+        pitch = Math.atan2(dySol, Math.sqrt(dxLua*dxLua + dzLua*dzLua)) * (180 / Math.PI);
+
+        setTimeout(() => {
+            // 3. Câmera desce e foca no Policial
+            let dxP = posPolicia[0] - camPos[0], dzP = posPolicia[2] - camPos[2], dyP = 1.4 - camPos[1];
+            yaw = Math.atan2(dzP, dxP) * (180 / Math.PI);
+            pitch = Math.atan2(dyP, Math.sqrt(dxP*dxP + dzP*dzP)) * (180 / Math.PI);
+
+            // 4. Policial começa a andar
+            animacaoPoliciaAndando = true;
+
+            setTimeout(() => {
+                // 5. Policial para e dá a voz de prisão
+                animacaoPoliciaAndando = false;
+                uiAviso.innerText = "PARADO AÍ! VOCÊ ESTÁ PRESO!"; 
+                uiAviso.style.color = "#2196f3"; 
+                uiAviso.classList.remove("hidden");
+
+                setTimeout(() => {
+                    uiAviso.classList.add("hidden"); 
+                    finalizarJogo("GAMEOVER_POLICIA"); 
+                }, 4000);
+            }, 2000); // Fica 2s dando os passos
+        }, 2000); // Fica 2s olhando pro Sol
+    }, 2000); // Fica 2s olhando pra Lua
+}
+
+function rodarCutsceneAcordar() {
+    if(cutsceneRodando) return;
+    cutsceneRodando = true; estadoJogo = "CUTSCENE"; playerControlavel = false;
+    
+    vec3.copy(camPosSalva, camPos);
+    yawSalvo = yaw; pitchSalvo = pitch;
+    
+    camPos[0] = 0; camPos[1] = 1.5; camPos[2] = -33; 
+    
+    let dx = donoDaCasa.pos[0] - camPos[0], dz = donoDaCasa.pos[2] - camPos[2], dy = (donoDaCasa.pos[1] + 0.5) - camPos[1];
+    yaw = Math.atan2(dz, dx) * (180 / Math.PI);
+    pitch = Math.atan2(dy, Math.sqrt(dx*dx + dz*dz)) * (180 / Math.PI);
+    
+    uiAviso.innerText = "... *Zzz* ... Huh? ... Quem tá aí?!"; 
+    uiAviso.style.color = "#fff"; 
+    uiAviso.classList.remove("hidden");
+    document.getElementById("hud-barulho").classList.add("hidden");
+
+    setTimeout(() => { 
+        donoDaCasa.estado = "ACORDANDO"; donoDaCasa.pos[1] = 0.0; donoDaCasa.pos[2] = -39.5; 
+        uiAviso.innerText = "LADRÃO! EU VOU TE PEGAR!"; uiAviso.style.color = "#f44336"; 
+    }, 3000);
+
+    setTimeout(() => { 
+        uiAviso.classList.add("hidden"); donoDaCasa.estado = "CAÇANDO"; playerControlavel = true; estadoJogo = "JOGANDO"; 
+        vec3.copy(camPos, camPosSalva); yaw = yawSalvo; pitch = pitchSalvo;
+    }, 6000);
+}
+
+function manualPerspective(out, fovy, aspect, near, far) {
+    let f = 1.0 / Math.tan(fovy / 2);
+    out[0] = f / aspect; out[1] = 0; out[2] = 0; out[3] = 0;
+    out[4] = 0; out[5] = f; out[6] = 0; out[7] = 0;
+    out[8] = 0; out[9] = 0; out[11] = -1;
+    let nf = 1 / (near - far);
+    out[10] = (far + near) * nf;
+    out[14] = (2 * far * near) * nf;
+    out[12] = 0; out[13] = 0; out[15] = 0;
+    return out;
+}
+
+function manualLookAt(out, eye, center, up) {
+    let x0, x1, x2, y0, y1, y2, z0, z1, z2, len;
+    z0 = eye[0] - center[0]; z1 = eye[1] - center[1]; z2 = eye[2] - center[2];
+    len = 1 / Math.hypot(z0, z1, z2);
+    z0 *= len; z1 *= len; z2 *= len;
+
+    x0 = up[1] * z2 - up[2] * z1; x1 = up[2] * z0 - up[0] * z2; x2 = up[0] * z1 - up[1] * z0;
+    len = Math.hypot(x0, x1, x2);
+    if (!len) { x0 = 0; x1 = 0; x2 = 0; } else { len = 1 / len; x0 *= len; x1 *= len; x2 *= len; }
+
+    y0 = z1 * x2 - z2 * x1; y1 = z2 * x0 - z0 * x2; y2 = z0 * x1 - z1 * x0;
+
+    out[0] = x0; out[1] = y0; out[2] = z0; out[3] = 0;
+    out[4] = x1; out[5] = y1; out[6] = z1; out[7] = 0;
+    out[8] = x2; out[9] = y2; out[10] = z2; out[11] = 0;
+    out[12] = -(x0 * eye[0] + x1 * eye[1] + x2 * eye[2]);
+    out[13] = -(y0 * eye[0] + y1 * eye[1] + y2 * eye[2]);
+    out[14] = -(z0 * eye[0] + z1 * eye[1] + z2 * eye[2]);
+    out[15] = 1;
+    return out;
+}
+
+function render(now) {
+    requestAnimationFrame(render);
+
+    let dt = (now - lastTime) / 1000;
+    lastTime = now;
+    if(dt > 0.1) dt = 0.1; 
+    
+    if (estadoJogo === "PAUSADO") return; 
+
+    if (estadoJogo === "JOGANDO" && ambiente === "EXTERIOR" && tempoAmanhecer <= 0 && !cutsceneRodando) {
+        rodarCutscenePolicia();
+    }
+
+    if (estadoJogo === "JOGANDO") {
+        if (donoDaCasa.estado === "DORMINDO" && !cutsceneRodando && !digitandoSenha) {
+            tempoAmanhecer -= dt;
+            if (tempoAmanhecer < 0) tempoAmanhecer = 0;
+            uiTempo.innerText = tempoAmanhecer.toFixed(1) + "s";
+            
+            if (tempoAmanhecer <= 0) {
+                if (ambiente === "EXTERIOR") rodarCutscenePolicia();
+                else rodarCutsceneAcordar();
+            }
+        }
+
+        let hudBarulho = document.getElementById("hud-barulho");
+        if (ambiente === "INTERIOR" && donoDaCasa.estado === "DORMINDO" && !cutsceneRodando && !digitandoSenha) {
+            hudBarulho.classList.remove("hidden");
+            let movendo = keys['w'] || keys['a'] || keys['s'] || keys['d'];
+            
+            if (movendo) nivelBarulho += 30.0 * dt; 
+            else nivelBarulho -= 20.0 * dt; 
+
+            if(nivelBarulho < 0) nivelBarulho = 0;
+            if(nivelBarulho > BARULHO_MAX) nivelBarulho = BARULHO_MAX;
+
+            let barFill = document.getElementById("barulho-fill");
+            barFill.style.width = nivelBarulho + "%";
+            if (nivelBarulho > 75) barFill.style.background = "#f44336"; 
+            else if (nivelBarulho > 40) barFill.style.background = "#ffeb3b"; 
+            else barFill.style.background = "#4caf50"; 
+
+            if (nivelBarulho >= BARULHO_MAX) rodarCutsceneAcordar();
+        } else {
+            hudBarulho.classList.add("hidden"); 
+        }
+
+        if (donoDaCasa.estado === "CAÇANDO") {
+            let alvoX = camPos[0]; let alvoZ = camPos[2];
+            
+            if (ambiente === "EXTERIOR" || camPos[2] > 4.5) {
+                alvoX = 0; alvoZ = 4.0; 
+            } else {
+                if (donoDaCasa.pos[2] < -28.5 && camPos[2] > -27.5) { alvoX = 0; alvoZ = -27; }
+                else if (donoDaCasa.pos[2] < -12.5 && camPos[2] > -11.5) { alvoX = 0; alvoZ = -11; }
+            }
+
+            let dirX = alvoX - donoDaCasa.pos[0], dirZ = alvoZ - donoDaCasa.pos[2];
+            let dist = Math.sqrt(dirX * dirX + dirZ * dirZ);
+            
+            if (dist > 0.1) {
+                let ex = donoDaCasa.pos[0] + (dirX / dist) * donoDaCasa.speed;
+                let ez = donoDaCasa.pos[2] + (dirZ / dist) * donoDaCasa.speed;
+                if(!colideComParedes(ex, donoDaCasa.pos[2])) donoDaCasa.pos[0] = ex;
+                if(!colideComParedes(donoDaCasa.pos[0], ez)) donoDaCasa.pos[2] = ez;
+            }
+            
+            portasInt.forEach(p => {
+                let cx = p.hinge[0] + p.width/2;
+                let distToDoor = Math.sqrt(Math.pow(donoDaCasa.pos[0]-cx, 2) + Math.pow(donoDaCasa.pos[2]-p.hinge[2], 2));
+                if(distToDoor < 4.5) { p.aberta = true; p.targetAngle = Math.PI/2; }
+            });
+
+            let distRealPlayer = Math.sqrt(Math.pow(camPos[0]-donoDaCasa.pos[0], 2) + Math.pow(camPos[2]-donoDaCasa.pos[2], 2));
+            if(ambiente === "INTERIOR" && distRealPlayer < 1.3) finalizarJogo("GAMEOVER");
+        }
+
+        let front = vec3.create(); front[0] = Math.cos(glMatrix.toRadian(yaw)) * Math.cos(glMatrix.toRadian(pitch)); front[1] = Math.sin(glMatrix.toRadian(pitch)); front[2] = Math.sin(glMatrix.toRadian(yaw)) * Math.cos(glMatrix.toRadian(pitch)); vec3.normalize(camFront, front);
+        if (playerControlavel && !digitandoSenha) {
+            let camRight = vec3.create(); vec3.cross(camRight, camFront, camUp); vec3.normalize(camRight, camRight);
+            let tempFront = vec3.fromValues(camFront[0], 0, camFront[2]); vec3.normalize(tempFront, tempFront);
+            let spd = 0.15; 
+            let dx = 0, dz = 0;
+            if(keys['w']) { dx += tempFront[0]*spd; dz += tempFront[2]*spd; } if(keys['s']) { dx -= tempFront[0]*spd; dz -= tempFront[2]*spd; }
+            if(keys['a']) { dx -= camRight[0]*spd; dz -= camRight[2]*spd; } if(keys['d']) { dx += camRight[0]*spd; dz += camRight[2]*spd; }
+            
+            if(ambiente === "INTERIOR"){ 
+                if(!colideComParedes(camPos[0] + dx, camPos[2])) camPos[0] += dx;
+                if(!colideComParedes(camPos[0], camPos[2] + dz)) camPos[2] += dz;
+            } else { camPos[0] += dx; camPos[2] += dz; }
+        }
+    } else if (estadoJogo === "CUTSCENE" || estadoJogo === "CUTSCENE_POLICIA" || estadoJogo === "CUTSCENE_VITORIA") {
+        if (estadoJogo === "CUTSCENE_VITORIA") {
+            let carro = moveisFisica.find(m => m.id === 'carro_fuga');
+            if (carro) {
+                carro.z += 20.0 * dt; 
+                
+                camPos[0] = 0; camPos[1] = 3.5; camPos[2] = 35; 
+                let dx = carro.x - camPos[0], dz = carro.z - camPos[2], dy = (carro.y + 0.5) - camPos[1];
+                yaw = Math.atan2(dz, dx) * (180 / Math.PI);
+                pitch = Math.atan2(dy, Math.sqrt(dx*dx + dz*dz)) * (180 / Math.PI);
+                
+                if (carro.z > 140) {
+                    uiAviso.classList.add("hidden");
+                    finalizarJogo("VITORIA");
+                }
+            }
+        }
+        vec3.set(camFront, Math.cos(glMatrix.toRadian(yaw)) * Math.cos(glMatrix.toRadian(pitch)), Math.sin(glMatrix.toRadian(pitch)), Math.sin(glMatrix.toRadian(yaw)) * Math.cos(glMatrix.toRadian(pitch))); vec3.normalize(camFront, camFront);
+    } else if (estadoJogo === "INTRO") {
+        let velWalking = 3.5 * dt;
+
+        if (introFase === 0) {
+            let dx = donoDaCasa.pos[0] - camPos[0], dz = donoDaCasa.pos[2] - camPos[2], dy = (donoDaCasa.pos[1] + 1.0) - camPos[1];
+            yaw = Math.atan2(dz, dx) * (180 / Math.PI);
+            pitch = Math.atan2(dy, Math.sqrt(dx*dx + dz*dz)) * (180 / Math.PI);
+
+            if (donoDaCasa.pos[2] > 6.5) {
+                donoDaCasa.pos[2] -= velWalking; 
+            } else {
+                introFase = 1; 
+                portaExt.targetAngle = Math.PI / 2;
+                addIntroTimeout(() => { introFase = 2; }, 600);
+            }
+        } else if (introFase === 2) {
+            let dx = donoDaCasa.pos[0] - camPos[0], dz = donoDaCasa.pos[2] - camPos[2], dy = (donoDaCasa.pos[1] + 1.0) - camPos[1];
+            yaw = Math.atan2(dz, dx) * (180 / Math.PI);
+            pitch = Math.atan2(dy, Math.sqrt(dx*dx + dz*dz)) * (180 / Math.PI);
+
+            if (donoDaCasa.pos[2] > 4.0) {
+                donoDaCasa.pos[2] -= velWalking; 
+            } else {
+                introFase = 3; 
+                ambiente = "INTERIOR";
+                uiAviso.classList.add("hidden"); 
+                portaExt.targetAngle = 0; 
+                camPos[0] = 6.0; camPos[1] = 2.5; camPos[2] = 3.0; 
+            }
+        } else if (introFase >= 3) {
+            if (introFase >= 10 && introFase <= 14) {
+                camPos[0] += (-2.0 - camPos[0]) * 0.05;
+                camPos[1] += (2.0 - camPos[1]) * 0.05;
+                camPos[2] += (-37.0 - camPos[2]) * 0.05;
+                let dx = cofre.pos[0] - camPos[0], dz = cofre.pos[2] - camPos[2], dy = cofre.pos[1] - camPos[1];
+                yaw = Math.atan2(dz, dx) * (180 / Math.PI);
+                pitch = Math.atan2(dy, Math.sqrt(dx*dx + dz*dz)) * (180 / Math.PI);
+            } else {
+                camPos[0] = 6.0; camPos[1] = 2.5; camPos[2] += (donoDaCasa.pos[2] + 8.0 - camPos[2]) * 0.05; 
+                yaw = -135.0; pitch = -15.0;
+            }
+
+            if (introFase === 3) {
+                if (donoDaCasa.pos[2] > -10.5) donoDaCasa.pos[2] -= velWalking; 
+                else {
+                    introFase = 4; portasInt[0].aberta = true; portasInt[0].targetAngle = Math.PI / 2;
+                    addIntroTimeout(() => { introFase = 5; }, 600); 
+                }
+            } else if (introFase === 5) {
+                if (donoDaCasa.pos[2] > -14.5) donoDaCasa.pos[2] -= velWalking;
+                else {
+                    introFase = 6; portasInt[0].aberta = false; portasInt[0].targetAngle = 0;
+                }
+            } else if (introFase === 6) {
+                if (donoDaCasa.pos[2] > -26.5) donoDaCasa.pos[2] -= velWalking;
+                else {
+                    introFase = 7; portasInt[1].aberta = true; portasInt[1].targetAngle = Math.PI / 2;
+                    addIntroTimeout(() => { introFase = 8; }, 600); 
+                }
+            } else if (introFase === 8) { 
+                if (donoDaCasa.pos[2] > -30.5) donoDaCasa.pos[2] -= velWalking;
+                else {
+                    introFase = 9; 
+                    portasInt[1].aberta = false; 
+                    portasInt[1].targetAngle = 0;
+                }
+            } else if (introFase === 9) { 
+                if (donoDaCasa.pos[2] > -40.0) donoDaCasa.pos[2] -= velWalking;
+                else {
+                    introFase = 10;
+                }
+            } else if (introFase === 10) { 
+                if (donoDaCasa.pos[0] > -6.0) donoDaCasa.pos[0] -= velWalking;
+                else {
+                    introFase = 11;
+                    cofre.aberto = true;
+                    cofre.targetAngle = Math.PI / 2; 
+                    
+                    uiAviso.innerText = "Velho: está aqui todo o dinheiro hahaha, mas agora vou dormir.";
+                    uiAviso.style.color = "#ffeb3b";
+                    uiAviso.classList.remove("hidden");
+                    
+                    addIntroTimeout(() => { introFase = 12; }, 2500); 
+                }
+            } else if (introFase === 11) {
+                // Espera
+            } else if (introFase === 12) { 
+                cofre.aberto = false;
+                cofre.targetAngle = 0; 
+                uiAviso.classList.add("hidden"); 
+                introFase = 13;
+                addIntroTimeout(() => { introFase = 14; }, 800); 
+            } else if (introFase === 13) {
+                // Espera
+            } else if (introFase === 14) { 
+                if (donoDaCasa.pos[0] < 0) donoDaCasa.pos[0] += velWalking;
+                else {
+                    introFase = 15;
+                }
+            } else if (introFase === 15) { 
+                if (donoDaCasa.pos[2] > -42.0) donoDaCasa.pos[2] -= velWalking;
+                else {
+                    introFase = 16; 
+                    donoDaCasa.estado = "DORMINDO"; 
+                    donoDaCasa.pos = [0, 0.6, -42.0]; 
+                    
+                    addIntroTimeout(() => {
+                        document.getElementById("tela-preta-intro").classList.remove("hidden");
+                        addIntroTimeout(() => { document.getElementById("texto-intro").style.opacity = "1"; }, 500);
+                        addIntroTimeout(() => {
+                            document.getElementById("texto-intro").style.opacity = "0";
+                            addIntroTimeout(iniciarJogoReal, 1500);
+                        }, 5000); 
+                    }, 1000); 
+                }
+            }
+        }
+
+        vec3.set(camFront, Math.cos(glMatrix.toRadian(yaw)) * Math.cos(glMatrix.toRadian(pitch)), Math.sin(glMatrix.toRadian(pitch)), Math.sin(glMatrix.toRadian(yaw)) * Math.cos(glMatrix.toRadian(pitch))); vec3.normalize(camFront, camFront);
+    } else if (estadoJogo !== "PAUSADO") { return; }
+
+    // --- UI Dicas ---
+    let exibirDicaFixa = false;
+    if(estadoJogo === "JOGANDO" && playerControlavel && !avisoTemporario && !digitandoSenha) {
+        let pertoPortaInterna = portasInt.some(p => vec3.distance(camPos, [p.hinge[0] + p.width/2, 1.7, p.hinge[2]]) < 4.0);
+        
+        let pertoPapel = false;
+        if(ambiente === "INTERIOR") papeis.forEach(p => { if(vec3.distance(camPos, p.pos) < 2.5) pertoPapel = true; });
+
+        if(ambiente === "EXTERIOR" && vec3.distance(camPos, [0, 1.7, 5.5]) < 5.0) { 
+            uiAviso.innerText = "Aperte [F] para entrar na casa"; uiAviso.style.color="#ffeb3b"; uiAviso.classList.remove("hidden"); exibirDicaFixa = true;
+        } else if (ambiente === "INTERIOR" && vec3.distance(camPos, [0, 1.7, 5.5]) < 5.0) { 
+            uiAviso.innerText = "Aperte [F] para sair para a rua"; uiAviso.style.color="#ffeb3b"; uiAviso.classList.remove("hidden"); exibirDicaFixa = true;
+        } else if (pertoPapel) {
+            uiAviso.innerText = "Aperte [E] para ler o papel"; uiAviso.style.color="#fff"; uiAviso.classList.remove("hidden"); exibirDicaFixa = true;
+        } else if (ambiente === "INTERIOR" && !cofre.aberto && vec3.distance(camPos, cofre.pos) < 3.5) {
+            uiAviso.innerText = "Aperte [E] para tentar abrir o cofre"; uiAviso.style.color="#ffeb3b"; uiAviso.classList.remove("hidden"); exibirDicaFixa = true;
+        } else if (ambiente === "INTERIOR" && pertoPortaInterna) {
+            uiAviso.innerText = "Aperte [F] para abrir/fechar a porta"; uiAviso.style.color="#ffeb3b"; uiAviso.classList.remove("hidden"); exibirDicaFixa = true;
+        } else if (ambiente === "INTERIOR" && cofre.aberto && !itemNaMao && itens.some(i => !i.roubado && vec3.distance(camPos, i.pos) < 3.0)) { 
+            uiAviso.innerText = "Aperte [E] para pegar o ouro"; uiAviso.style.color="#ffeb3b"; uiAviso.classList.remove("hidden"); exibirDicaFixa = true;
+        } else if (ambiente === "EXTERIOR" && itemNaMao && vec3.distance(camPos, [0, 1.7, 42]) < 6.0) { 
+            uiAviso.innerText = "Aperte [E] para guardar no carro"; uiAviso.style.color="#4caf50"; uiAviso.classList.remove("hidden"); exibirDicaFixa = true;
+        }
+    }
+    
+    if (!exibirDicaFixa && !avisoTemporario && estadoJogo !== "CUTSCENE" && estadoJogo !== "CUTSCENE_POLICIA" && estadoJogo !== "CUTSCENE_VITORIA" && estadoJogo !== "INTRO") {
+        uiAviso.classList.add("hidden");
+    }
+
+    canvas.width = window.innerWidth || 300; 
+    canvas.height = window.innerHeight || 150; 
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    
+    let isDia = tempoAmanhecer <= 0;
+
+    if (ambiente === "EXTERIOR") { 
+        if (isDia) {
+            gl.clearColor(0.5, 0.7, 0.9, 1.0); 
+            if (ambLoc !== null) gl.uniform1f(ambLoc, 0.85); 
+            if (lightColLoc !== null) gl.uniform3fv(lightColLoc, [1.0, 1.0, 1.0]); 
+            if (lightLoc !== null) gl.uniform3fv(lightLoc, [20, 50, 40]); 
+        } else {
+            gl.clearColor(0.02, 0.05, 0.1, 1.0); 
+            if (ambLoc !== null) gl.uniform1f(ambLoc, 0.2); 
+            if (lightColLoc !== null) gl.uniform3fv(lightColLoc, [1.0, 0.9, 0.7]); 
+            if (lightLoc !== null) gl.uniform3fv(lightLoc, [-1.0, 5.5, 37.5]); 
+        }
+    } else { 
+        gl.clearColor(0.05, 0.05, 0.05, 1.0); 
+        // AQUI CONFIGURAMOS A CASA MAIS ESCURA QUANDO ELE DORME (0.15)
+        if (ambLoc !== null) gl.uniform1f(ambLoc, donoDaCasa.estado === "DORMINDO" ? 0.15 : 0.6); 
+        // Também diminuímos a luz pontual geral pra não competir com a lanterna
+        if (lightColLoc !== null) gl.uniform3fv(lightColLoc, donoDaCasa.estado !== "DORMINDO" ? [1.0, 0.4, 0.4] : [0.2, 0.2, 0.3]); 
+        let luzZ = -20 + Math.cos((now || 0) / 1000) * 10;
+        if (lightLoc !== null) gl.uniform3fv(lightLoc, [0, 15.0, luzZ]); 
+    }
+    
+    if (viewPosLoc !== null) gl.uniform3fv(viewPosLoc, camPos);
+
+    // Passa os dados da Lanterna pro Shader
+    if (flashLoc !== null) gl.uniform1i(flashLoc, lanternaLigada ? 1 : 0);
+    if (camFrontLoc !== null) gl.uniform3fv(camFrontLoc, camFront);
+
+    gl.enable(gl.CULL_FACE); 
+    gl.enable(gl.DEPTH_TEST); 
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); 
+    gl.useProgram(program);
+
+    const proj = mat4.create(); 
+    manualPerspective(proj, 45 * Math.PI / 180, canvas.width/canvas.height, 0.1, 100);
+    
+    const view = mat4.create(); 
+    let target = vec3.create(); 
+    vec3.add(target, camPos, camFront); 
+    manualLookAt(view, camPos, target, camUp);
+    
+    const vp = mat4.create(); 
+    mat4.multiply(vp, proj, view);
+
+    if (ambiente === "EXTERIOR") {
+        // Fundo de Grama Verde
+        desenhaObjeto(vp, [0, -0.51, 80], [200, 1, 200], texturas.grama);
+
+        // --- PISTA E CALÇADAS CENTRAIS ---
+        // Calçada cobrindo a extensão ajustada pra não invadir a grama da casa
+        desenhaObjeto(vp, [0, 0.01, 104], [16, 0.02, 192], texturas.calcada);
+        // Asfalto no centro da calçada
+        desenhaObjeto(vp, [0, 0.02, 104], [192, 0.02, 10], texturas.asfalto, Math.PI/2);
+        
+        // Paredes originais e estrutura externa principal
+        paredes.forEach(p => desenhaObjeto(vp, [p.x, 2.5, p.z], [p.w, 5, p.d], texturas.parede_ext));
+        desenhaObjeto(vp, [0, 0.1, 6.0], [3, 0.1, 2], texturas.madeira, Math.PI/2);
+        desenhaObjeto(vp, [0, 5.5, -20], [40.5, 1, 50], texturas.telhado);
+        
+        // Muros extras
+        desenhaObjeto(vp, [-4, 3, 37.5], [0.3, 6, 0.3], texturas.parede); 
+        desenhaObjeto(vp, [-2.5, 5.8, 37.5], [3, 0.3, 0.3], texturas.parede); 
+
+        // --- CASAS DA VILA (Vizinhança) ---
+        let zCasas = [25, 45, 65, 85, 105, 125];
+        zCasas.forEach(z => {
+            // Casas da Esquerda
+            desenhaObjeto(vp, [-18, 2, z], [12, 4, 12], texturas.parede_ext);
+            desenhaObjeto(vp, [-18, 4.5, z], [13, 1.5, 13], texturas.telhado);
+            desenhaObjeto(vp, [-11.9, 1, z], [0.2, 2, 1.5], texturas.porta_ext);
+
+            // Casas da Direita
+            desenhaObjeto(vp, [18, 2, z], [12, 4, 12], texturas.parede_ext);
+            desenhaObjeto(vp, [18, 4.5, z], [13, 1.5, 13], texturas.telhado);
+            desenhaObjeto(vp, [11.9, 1, z], [0.2, 2, 1.5], texturas.porta_ext);
+        });
+
+        // --- ÁRVORES REPOSICIONADAS ---
+        let zArvores = [10, 35, 60, 85, 110];
+        zArvores.forEach(z => {
+            desenhaObjeto(vp, [-7, 2, z], [0.8, 5, 0.8], texturas.tronco);
+            desenhaObjeto(vp, [-7, 5, z], [4, 4, 4], texturas.folhas);
+            
+            desenhaObjeto(vp, [7, 2, z], [0.8, 5, 0.8], texturas.tronco);
+            desenhaObjeto(vp, [7, 5, z], [4, 4, 4], texturas.folhas);
+        });
+        
+        // Sol ou Parede cega de dia/noite
+        if (isDia) {
+            desenhaObjeto(vp, [25, 40, 80], [10, 10, 0.1], texturas.sol, 0, null, 0, 0, true, [1.0, 0.9, 0.2, 1.0]); 
+            desenhaObjeto(vp, [-1, 5.5, 37.5], [0.8, 0.8, 0.8], texturas.parede); 
+        } else {
+            desenhaObjeto(vp, [25, 30, 80], [6, 6, 0.1], texturas.parede, 0, null, 0, 0, true, [0.9, 0.9, 1.0, 1.0]); 
+            desenhaObjeto(vp, [-1, 5.5, 37.5], [0.8, 0.8, 0.8], texturas.parede, 0, null, 0, 0, true, [1.0, 1.0, 0.6, 1.0]); 
+        }
+
+        if (estadoJogo === "CUTSCENE_POLICIA") {
+            let rotYPolicia = Math.atan2(camPos[0] - posPolicia[0], camPos[2] - posPolicia[2]);
+            if (animacaoPoliciaAndando) {
+                posPolicia[2] -= 1.5 * dt; 
+                desenhaPolicial(vp, posPolicia, rotYPolicia, true, now);
+            } else {
+                desenhaPolicial(vp, posPolicia, rotYPolicia, false, now);
+            }
+        }
+
+    } else {
+        desenhaObjeto(vp, [0, -0.45, -20], [40.5, 1, 50], texturas.chao); 
+        desenhaObjeto(vp, [0, 5, -20], [40.5, 1, 50], texturas.parede); 
+        
+        cenarioDecorativo.forEach(c => desenhaObjeto(vp, [c.x, c.y, c.z], [c.w, c.h, c.d], c.tex));
+        paredes.forEach(p => {
+            // Impede o desenho dos blocos invisiveis de colisão das casas quando está dentro
+            if (p.w === 12 && p.d === 12 && p.z > 20) return;
+            desenhaObjeto(vp, [p.x, 2.5, p.z], [p.w, 5, p.d], texturas.parede)
+        });
+        
+        portasInt.forEach(p => {
+            p.angle += (p.targetAngle - p.angle) * 0.1; 
+            let cx = p.hinge[0] + Math.cos(p.angle) * (p.width/2);
+            let cz = p.hinge[2] - Math.sin(p.angle) * (p.width/2);
+            desenhaObjeto(vp, [cx, p.hinge[1], cz], [p.width, 3.5, 0.2], texturas.porta_ext, p.angle);
+        });
+
+        // Papéis
+        papeis.forEach(p => desenhaObjeto(vp, p.pos, [0.5, 0.05, 0.5], texturas.papel));
+
+        // Props fixos
+        objetosEstaticos.forEach(obj => desenhaObjeto(vp, obj.pos, obj.scale, obj.tex));
+
+        // Animação da Porta do Cofre
+        cofre.angle += (cofre.targetAngle - cofre.angle) * 0.1;
+        let cxCofre = cofre.pos[0] + 1.25 - Math.cos(cofre.angle) * 1.25;
+        let czCofre = cofre.pos[2] + Math.sin(cofre.angle) * 1.25;
+        desenhaObjeto(vp, [cxCofre, cofre.pos[1], czCofre], [2.5, 2.5, 0.2], texturas.cofre_porta, cofre.angle);
+    }
+
+    // --- RENDERIZAÇÃO GLOBAL ---
+    portaExt.angle += (portaExt.targetAngle - portaExt.angle) * 0.1;
+    let cxExt = -2 + Math.cos(portaExt.angle) * 2;
+    let czExt = 5.0 - Math.sin(portaExt.angle) * 2;
+    desenhaObjeto(vp, [cxExt, 1.75, czExt], [4, 3.5, 0.2], texturas.porta_ext, portaExt.angle);
+
+    // --- ROTAÇÃO DONO NA INTRO REESCRITA ---
+    let rotYDono = Math.PI / 2; 
+    if (estadoJogo === "INTRO") {
+        if (introFase < 10) rotYDono = Math.PI;              // Andando para Z-
+        else if (introFase === 10) rotYDono = -Math.PI/2;   // Andando para X- (esquerda)
+        else if (introFase >= 11 && introFase <= 13) rotYDono = Math.atan2(cofre.pos[0] - donoDaCasa.pos[0], cofre.pos[2] - donoDaCasa.pos[2]); // Olhando pro cofre
+        else if (introFase === 14) rotYDono = Math.PI/2;    // Andando para X+ (direita)
+        else if (introFase >= 15) rotYDono = Math.PI;       // Andando para Z- (cama)
+    } else if (donoDaCasa.estado !== "DORMINDO") {
+        rotYDono = Math.atan2(camPos[0] - donoDaCasa.pos[0], camPos[2] - donoDaCasa.pos[2]);
+    }
+    
+    if (estadoJogo !== "CUTSCENE_POLICIA") {
+        desenhaVelhinho(vp, donoDaCasa.pos, donoDaCasa.estado, rotYDono, now);
+    }
+
+    moveisFisica.forEach(m => {
+        if (estadoJogo === "INTRO" && m.id === 'carro_fuga') return; 
+
+        if (m.id === 'carro_fuga' && modeloCarroObj) {
+            let escalaCarroObj = [0.4, 0.4, 0.4]; 
+            let fixX_Carro = 0; 
+            let rotY_Carro = Math.PI; 
+            
+            desenhaObjeto(vp, [m.x, m.y, m.z], escalaCarroObj, texturas.carro_solido, rotY_Carro, modeloCarroObj, fixX_Carro);
+        } else {
+            desenhaObjeto(vp, [m.x, m.y, m.z], [m.w, m.h, m.d], m.tex, m.rot);
+        }
+    });
+
+    // Pilhas de ouro
+    itens.forEach(item => { if(!item.roubado && cofre.aberto) desenhaObjeto(vp, item.pos, item.scale, item.tex); });
+}
+requestAnimationFrame(render);
