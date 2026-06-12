@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Stealth Horror - A Invasão Noturna</title>
+    <title>Stealth Horror - A Herança Perdida</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; color: white; font-family: 'Courier New', Courier, monospace; }
         canvas { display: block; }
@@ -34,7 +34,7 @@
         #tela-preta-intro { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: black; display: flex; align-items: center; justify-content: center; z-index: 15; flex-direction: column; }
         #texto-intro { color: #fff; font-size: 30px; max-width: 800px; text-align: center; opacity: 0; transition: opacity 2s; text-shadow: none; line-height: 1.5; }
 
-        /* Nova UI do Cofre */
+        /* UI do Cofre */
         #senha-ui { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(20,20,20,0.95); border: 4px solid #9e9e9e; padding: 30px; text-align: center; z-index: 30; border-radius: 10px; }
         #senha-ui h2 { margin: 0 0 15px 0; color: #fff; }
         #senha-ui p { font-size: 18px; color: #ccc; margin-bottom: 20px;}
@@ -202,7 +202,7 @@
             } else if(tipo === 'tronco') { ctx.fillStyle = '#3e2723'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#4e342e'; for(let x=0; x<256; x+=20) ctx.fillRect(x,0,10,256); 
             } else if(tipo === 'policia_roupa') { ctx.fillStyle = '#152238'; ctx.fillRect(0,0,256,256); ctx.fillStyle = '#0a111c'; for(let y=0; y<256; y+=40) ctx.fillRect(0,y,256,10); 
             } else if(tipo === 'sol') { ctx.fillStyle = '#ffeb3b'; ctx.beginPath(); ctx.arc(128,128,120,0,Math.PI*2); ctx.fill(); 
-            // Novas texturas Cofre, Ouro, Papel
+            // Texturas Cofre, Ouro, Papel
             } else if(tipo === 'cofre_porta') { 
                 ctx.fillStyle = '#e0e0e0'; ctx.fillRect(0,0,256,256); 
                 ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(128, 128, 110, 0, Math.PI*2); ctx.fill(); 
@@ -227,7 +227,7 @@
             policia_roupa: criarTextura('policia_roupa'), sol: criarTextura('sol'), cofre_porta: criarTextura('cofre_porta'), ouro: criarTextura('ouro'), papel: criarTextura('papel')
         };
 
-        // --- LEITOR DE MATERIAIS (.MTL) E MODELOS (.OBJ) ---
+        // --- MODELOS OBJ ---
         let modeloVovoCustomizado = null;
         let modeloCarroObj = null;
 
@@ -265,7 +265,7 @@
                         materiais[currentMtl].textura = tex;
                     }
                 }
-            } catch(e) { console.warn("Erro ao carregar MTL", e); }
+            } catch(e) {}
             return materiais;
         }
 
@@ -351,9 +351,9 @@
         }
 
         carregarModeloOBJ('vovo.obj').then(modeloArray => { modeloVovoCustomizado = modeloArray; });
-        carregarModeloOBJ('car.obj').then(modeloArray => { modeloCarroObj = modeloArray; });
+        carregarModeloOBJ('Chevrolet_Camaro_SS_High.obj').then(modeloArray => { modeloCarroObj = modeloArray; });
 
-        // --- ARQUITETURA DE LEVEL DESIGN E COLISÃO ---
+        // --- LEVEL DESIGN E COLISÃO ---
         const paredes = [
             { x: -20, z: -20, w: 0.5, d: 50 }, { x: 20, z: -20, w: 0.5, d: 50 }, 
             { x: 0, z: -45.0, w: 40.5, d: 0.5 }, 
@@ -364,7 +364,7 @@
         ];
 
         const moveisFisica = [
-            { id: 'carro_fuga', x: 0, z: 28, y: 0.5, w: 4, d: 8, h: 1.5, tex: texturas.carro_fallback, rot: 0 },
+            { id: 'carro_fuga', x: 0, z: 42, y: 0.5, w: 4, d: 8, h: 1.5, tex: texturas.carro_fallback, rot: 0 },
             { x: 0, z: -42.5, y: 0.3, w: 5, d: 5, h: 0.6, tex: texturas.cama, rot: 0 }, 
             { x: 16, z: -40, y: 1.5, w: 4, d: 8, h: 3, tex: texturas.madeira, rot: 0 }, 
             { x: -6, z: -42.5, y: 0.4, w: 2, d: 2, h: 0.8, tex: texturas.madeira, rot: 0 }, 
@@ -400,7 +400,7 @@
             { pos: [-16, 1.45, -32], scale: [0.6, 0.05, 0.6], tex: texturas.colar }  
         ];
 
-        // Novo Mecanismo do Cofre
+        // Mecanismo do Cofre
         let cofre = { pos: [-9.5, 1.5, -44.8], angle: 0, targetAngle: 0, aberto: false };
         let tentativasSenha = 0;
         let digitandoSenha = false;
@@ -433,7 +433,7 @@
             return false;
         }
 
-        // --- ESTADOS DO JOGO E NOVO SISTEMA DE INVENTÁRIO ---
+        // --- ESTADOS DO JOGO ---
         let estadoJogo = "MENU"; 
         let ambiente = "EXTERIOR"; 
         let cutsceneRodando = false;
@@ -563,7 +563,7 @@
             document.getElementById("tela-preta-intro").classList.add("hidden");
             document.getElementById("skip-intro").classList.remove("hidden");
 
-            // Exibir a Legenda da fala na intro
+            // Legenda da fala na intro EXTERIOR
             uiAviso.innerText = '"Roubei a herança daquele otário, agora é dormir e depois lavar esse dinheiro"'; 
             uiAviso.style.color = "#fff"; 
             uiAviso.classList.remove("hidden");
@@ -578,7 +578,7 @@
             
             portaExt.targetAngle = 0; portaExt.angle = 0; // Reseta porta de fora caso pule a cena
             let carro = moveisFisica.find(m => m.id === 'carro_fuga');
-            if(carro) { carro.x = 0; carro.z = 28; }
+            if(carro) { carro.x = 0; carro.z = 42; }
             
             document.getElementById("hud-mao").innerText = "VAZIAS"; document.getElementById("hud-mao").style.color = "#fff";
             
@@ -606,6 +606,9 @@
                 introFase = 99; // Força sair das fases normais
                 timeoutsIntro.forEach(clearTimeout);
                 timeoutsIntro = [];
+                cofre.aberto = false;
+                cofre.targetAngle = 0;
+                uiAviso.classList.add("hidden");
                 iniciarJogoReal();
                 return;
             }
@@ -685,7 +688,7 @@
 
                 // 4. Guardar no Carro
                 if (!acaoRealizada && ambiente === "EXTERIOR" && itemNaMao) {
-                    let posCarro = [0, 1.7, 28];
+                    let posCarro = [0, 1.7, 42]; 
                     if (vec3.distance(camPos, posCarro) < 6.0) {
                         itemNaMao = false;
                         itensNoCarro++;
@@ -1041,16 +1044,14 @@
                 if (estadoJogo === "CUTSCENE_VITORIA") {
                     let carro = moveisFisica.find(m => m.id === 'carro_fuga');
                     if (carro) {
-                        carro.z += 25.0 * dt; // Faz o carro acelerar para longe
+                        carro.z += 20.0 * dt; 
                         
-                        // Câmera estática acompanhando o carro sumir na estrada
-                        camPos[0] = -12; camPos[1] = 5; camPos[2] = 16;
-                        let dx = carro.x - camPos[0], dz = carro.z - camPos[2], dy = (carro.y + 0.2) - camPos[1];
+                        camPos[0] = 0; camPos[1] = 3.5; camPos[2] = 35; 
+                        let dx = carro.x - camPos[0], dz = carro.z - camPos[2], dy = (carro.y + 0.5) - camPos[1];
                         yaw = Math.atan2(dz, dx) * (180 / Math.PI);
                         pitch = Math.atan2(dy, Math.sqrt(dx*dx + dz*dz)) * (180 / Math.PI);
                         
-                        // Quando o carro passar do limite visível da rua
-                        if (carro.z > 95) {
+                        if (carro.z > 140) {
                             uiAviso.classList.add("hidden");
                             finalizarJogo("VITORIA");
                         }
@@ -1061,7 +1062,6 @@
                 let velWalking = 3.5 * dt;
 
                 if (introFase === 0) {
-                    // Câmera Panorâmica acompanha o velho de fora
                     let dx = donoDaCasa.pos[0] - camPos[0], dz = donoDaCasa.pos[2] - camPos[2], dy = (donoDaCasa.pos[1] + 1.0) - camPos[1];
                     yaw = Math.atan2(dz, dx) * (180 / Math.PI);
                     pitch = Math.atan2(dy, Math.sqrt(dx*dx + dz*dz)) * (180 / Math.PI);
@@ -1069,13 +1069,11 @@
                     if (donoDaCasa.pos[2] > 6.5) {
                         donoDaCasa.pos[2] -= velWalking; 
                     } else {
-                        // Chegou na porta, abre a porta principal
                         introFase = 1; 
                         portaExt.targetAngle = Math.PI / 2;
                         addIntroTimeout(() => { introFase = 2; }, 600);
                     }
                 } else if (introFase === 2) {
-                    // Espera abrir e entra
                     let dx = donoDaCasa.pos[0] - camPos[0], dz = donoDaCasa.pos[2] - camPos[2], dy = (donoDaCasa.pos[1] + 1.0) - camPos[1];
                     yaw = Math.atan2(dz, dx) * (180 / Math.PI);
                     pitch = Math.atan2(dy, Math.sqrt(dx*dx + dz*dz)) * (180 / Math.PI);
@@ -1083,18 +1081,29 @@
                     if (donoDaCasa.pos[2] > 4.0) {
                         donoDaCasa.pos[2] -= velWalking; 
                     } else {
-                        // Corta a câmera para o lado de dentro
                         introFase = 3; 
                         ambiente = "INTERIOR";
-                        uiAviso.classList.add("hidden"); // Tira a legenda
-                        portaExt.targetAngle = 0; // Fecha a porta atrás dele
-                        camPos[0] = 6.0; camPos[1] = 2.5; camPos[2] = 3.0; // Posição inicial da câmera interna
+                        uiAviso.classList.add("hidden"); 
+                        portaExt.targetAngle = 0; 
+                        camPos[0] = 6.0; camPos[1] = 2.5; camPos[2] = 3.0; 
                     }
                 } else if (introFase >= 3) {
-                    // Câmera de dentro da casa acompanhando ele
-                    camPos[0] = 6.0; camPos[1] = 2.5; camPos[2] += (donoDaCasa.pos[2] + 8.0 - camPos[2]) * 0.05; 
-                    yaw = -135.0; pitch = -15.0;
+                    // --- CAMERA DA INTRO INTERNA ---
+                    if (introFase >= 10 && introFase <= 14) {
+                        // Câmera focando no cofre/velho de um ângulo seguro
+                        camPos[0] += (-2.0 - camPos[0]) * 0.05;
+                        camPos[1] += (2.0 - camPos[1]) * 0.05;
+                        camPos[2] += (-37.0 - camPos[2]) * 0.05;
+                        let dx = cofre.pos[0] - camPos[0], dz = cofre.pos[2] - camPos[2], dy = cofre.pos[1] - camPos[1];
+                        yaw = Math.atan2(dz, dx) * (180 / Math.PI);
+                        pitch = Math.atan2(dy, Math.sqrt(dx*dx + dz*dz)) * (180 / Math.PI);
+                    } else {
+                        // Câmera padrão seguindo o trajeto normal
+                        camPos[0] = 6.0; camPos[1] = 2.5; camPos[2] += (donoDaCasa.pos[2] + 8.0 - camPos[2]) * 0.05; 
+                        yaw = -135.0; pitch = -15.0;
+                    }
 
+                    // --- TRAJETO OTIMIZADO PARA EVITAR BUG E COLISÃO ---
                     if (introFase === 3) {
                         if (donoDaCasa.pos[2] > -10.5) donoDaCasa.pos[2] -= velWalking; 
                         else {
@@ -1112,15 +1121,53 @@
                             introFase = 7; portasInt[1].aberta = true; portasInt[1].targetAngle = Math.PI / 2;
                             addIntroTimeout(() => { introFase = 8; }, 600); 
                         }
-                    } else if (introFase === 8) {
+                    } else if (introFase === 8) { // Entra no quarto
                         if (donoDaCasa.pos[2] > -30.5) donoDaCasa.pos[2] -= velWalking;
                         else {
-                            introFase = 9; portasInt[1].aberta = false; portasInt[1].targetAngle = 0;
+                            introFase = 9; 
+                            portasInt[1].aberta = false; // FECHA A PORTA DO QUARTO
+                            portasInt[1].targetAngle = 0;
                         }
-                    } else if (introFase === 9) {
+                    } else if (introFase === 9) { // Desce pelo centro do quarto até a altura do cofre
+                        if (donoDaCasa.pos[2] > -40.0) donoDaCasa.pos[2] -= velWalking;
+                        else {
+                            introFase = 10;
+                        }
+                    } else if (introFase === 10) { // Caminha para a esquerda, mantendo distância segura da parede
+                        if (donoDaCasa.pos[0] > -6.0) donoDaCasa.pos[0] -= velWalking;
+                        else {
+                            introFase = 11;
+                            cofre.aberto = true;
+                            cofre.targetAngle = Math.PI / 2; 
+                            
+                            // EXIBE A LEGENDA PEDIDA CORRETAMENTE
+                            uiAviso.innerText = "Velho: está aqui todo o dinheiro hahaha, mas agora vou dormir.";
+                            uiAviso.style.color = "#ffeb3b";
+                            uiAviso.classList.remove("hidden");
+                            
+                            addIntroTimeout(() => { introFase = 12; }, 2500); // 2.5 segundos admirando
+                        }
+                    } else if (introFase === 11) {
+                        // Estado de espera (admirando e rindo)
+                    } else if (introFase === 12) { 
+                        cofre.aberto = false;
+                        cofre.targetAngle = 0; 
+                        uiAviso.classList.add("hidden"); // Remove a legenda
+                        introFase = 13;
+                        addIntroTimeout(() => { introFase = 14; }, 800); // Aguarda fechar
+                    } else if (introFase === 13) {
+                        // Estado de espera (fechando a porta do cofre)
+                    } else if (introFase === 14) { // Volta pro centro do quarto em X
+                        if (donoDaCasa.pos[0] < 0) donoDaCasa.pos[0] += velWalking;
+                        else {
+                            introFase = 15;
+                        }
+                    } else if (introFase === 15) { // Caminha o resto do trajeto para a cama
                         if (donoDaCasa.pos[2] > -42.0) donoDaCasa.pos[2] -= velWalking;
                         else {
-                            introFase = 10; donoDaCasa.estado = "DORMINDO"; donoDaCasa.pos = [0, 0.6, -42.0]; 
+                            introFase = 16; 
+                            donoDaCasa.estado = "DORMINDO"; 
+                            donoDaCasa.pos = [0, 0.6, -42.0]; 
                             
                             addIntroTimeout(() => {
                                 document.getElementById("tela-preta-intro").classList.remove("hidden");
@@ -1137,6 +1184,7 @@
                 vec3.set(camFront, Math.cos(glMatrix.toRadian(yaw)) * Math.cos(glMatrix.toRadian(pitch)), Math.sin(glMatrix.toRadian(pitch)), Math.sin(glMatrix.toRadian(yaw)) * Math.cos(glMatrix.toRadian(pitch))); vec3.normalize(camFront, camFront);
             } else if (estadoJogo !== "PAUSADO") { return; }
 
+            // --- UI Dicas ---
             let exibirDicaFixa = false;
             if(estadoJogo === "JOGANDO" && playerControlavel && !avisoTemporario && !digitandoSenha) {
                 let pertoPortaInterna = portasInt.some(p => vec3.distance(camPos, [p.hinge[0] + p.width/2, 1.7, p.hinge[2]]) < 4.0);
@@ -1156,12 +1204,12 @@
                     uiAviso.innerText = "Aperte [F] para abrir/fechar a porta"; uiAviso.style.color="#ffeb3b"; uiAviso.classList.remove("hidden"); exibirDicaFixa = true;
                 } else if (ambiente === "INTERIOR" && cofre.aberto && !itemNaMao && itens.some(i => !i.roubado && vec3.distance(camPos, i.pos) < 3.0)) { 
                     uiAviso.innerText = "Aperte [E] para pegar o ouro"; uiAviso.style.color="#ffeb3b"; uiAviso.classList.remove("hidden"); exibirDicaFixa = true;
-                } else if (ambiente === "EXTERIOR" && itemNaMao && vec3.distance(camPos, [0, 1.7, 28]) < 6.0) {
+                } else if (ambiente === "EXTERIOR" && itemNaMao && vec3.distance(camPos, [0, 1.7, 42]) < 6.0) { 
                     uiAviso.innerText = "Aperte [E] para guardar no carro"; uiAviso.style.color="#4caf50"; uiAviso.classList.remove("hidden"); exibirDicaFixa = true;
                 }
             }
             
-            if (!exibirDicaFixa && !avisoTemporario && estadoJogo !== "CUTSCENE" && estadoJogo !== "CUTSCENE_POLICIA" && estadoJogo !== "CUTSCENE_VITORIA") {
+            if (!exibirDicaFixa && !avisoTemporario && estadoJogo !== "CUTSCENE" && estadoJogo !== "CUTSCENE_POLICIA" && estadoJogo !== "CUTSCENE_VITORIA" && estadoJogo !== "INTRO") {
                 uiAviso.classList.add("hidden");
             }
 
@@ -1245,7 +1293,7 @@
                 if (estadoJogo === "CUTSCENE_POLICIA") {
                     let rotYPolicia = Math.atan2(camPos[0] - posPolicia[0], camPos[2] - posPolicia[2]);
                     if (animacaoPoliciaAndando) {
-                        posPolicia[2] -= 1.5 * dt; // Faz o policial se aproximar de você
+                        posPolicia[2] -= 1.5 * dt; 
                         desenhaPolicial(vp, posPolicia, rotYPolicia, true, now);
                     } else {
                         desenhaPolicial(vp, posPolicia, rotYPolicia, false, now);
@@ -1266,31 +1314,33 @@
                     desenhaObjeto(vp, [cx, p.hinge[1], cz], [p.width, 3.5, 0.2], texturas.porta_ext, p.angle);
                 });
 
-                // Renderizando Papéis de Dicas
+                // Papéis
                 papeis.forEach(p => desenhaObjeto(vp, p.pos, [0.5, 0.05, 0.5], texturas.papel));
 
-                // Renderizando Móveis e props Antigos
+                // Props fixos
                 objetosEstaticos.forEach(obj => desenhaObjeto(vp, obj.pos, obj.scale, obj.tex));
 
-                // Lógica de Animação da Porta do Cofre
+                // Animação da Porta do Cofre
                 cofre.angle += (cofre.targetAngle - cofre.angle) * 0.1;
                 let cxCofre = cofre.pos[0] + 1.25 - Math.cos(cofre.angle) * 1.25;
                 let czCofre = cofre.pos[2] + Math.sin(cofre.angle) * 1.25;
                 desenhaObjeto(vp, [cxCofre, cofre.pos[1], czCofre], [2.5, 2.5, 0.2], texturas.cofre_porta, cofre.angle);
             }
 
-            // --- RENDERIZAÇÃO GLOBAL (Fora do if/else de ambiente para aparecerem sempre que precisar) ---
-            
-            // Animação da porta principal (Aparece tanto de fora quanto de dentro)
+            // --- RENDERIZAÇÃO GLOBAL ---
             portaExt.angle += (portaExt.targetAngle - portaExt.angle) * 0.1;
             let cxExt = -2 + Math.cos(portaExt.angle) * 2;
             let czExt = 5.0 - Math.sin(portaExt.angle) * 2;
             desenhaObjeto(vp, [cxExt, 1.75, czExt], [4, 3.5, 0.2], texturas.porta_ext, portaExt.angle);
 
-            // Dono da Casa
+            // --- ROTAÇÃO DONO NA INTRO REESCRITA ---
             let rotYDono = Math.PI / 2; 
-            if (estadoJogo === "INTRO" && introFase < 10) {
-                rotYDono = Math.PI; 
+            if (estadoJogo === "INTRO") {
+                if (introFase < 10) rotYDono = Math.PI;             // Andando para Z-
+                else if (introFase === 10) rotYDono = -Math.PI/2;   // Andando para X- (esquerda)
+                else if (introFase >= 11 && introFase <= 13) rotYDono = Math.atan2(cofre.pos[0] - donoDaCasa.pos[0], cofre.pos[2] - donoDaCasa.pos[2]); // Olhando pro cofre
+                else if (introFase === 14) rotYDono = Math.PI/2;    // Andando para X+ (direita)
+                else if (introFase >= 15) rotYDono = Math.PI;       // Andando para Z- (cama)
             } else if (donoDaCasa.estado !== "DORMINDO") {
                 rotYDono = Math.atan2(camPos[0] - donoDaCasa.pos[0], camPos[2] - donoDaCasa.pos[2]);
             }
@@ -1300,19 +1350,20 @@
             }
 
             moveisFisica.forEach(m => {
-                if (estadoJogo === "INTRO" && m.id === 'carro_fuga') return; // ESCONDE O CARRO NA INTRO
+                if (estadoJogo === "INTRO" && m.id === 'carro_fuga') return; 
 
-                if (m.id === 'carro_fuga' && modeloCarroObj) {
+            if (m.id === 'carro_fuga' && modeloCarroObj) {
                     let escalaCarroObj = [0.4, 0.4, 0.4]; 
                     let fixX_Carro = 0; 
-                    let rotY_Carro = -Math.PI / 2; 
-                    desenhaObjeto(vp, [m.x, m.y - 0.5, m.z], escalaCarroObj, texturas.carro_solido, rotY_Carro, modeloCarroObj, fixX_Carro);
+                    let rotY_Carro = Math.PI; 
+                    // AJUSTE AQUI: Trocado m.y - 0.5 por m.y + 0.3
+                    desenhaObjeto(vp, [m.x, m.y + 0.3, m.z], escalaCarroObj, texturas.carro_solido, rotY_Carro, modeloCarroObj, fixX_Carro);
                 } else {
                     desenhaObjeto(vp, [m.x, m.y, m.z], [m.w, m.h, m.d], m.tex, m.rot);
                 }
             });
 
-            // Pilhas de ouro
+            // Pilhas de ouro aparecem se o cofre estiver aberto (funciona na intro também!)
             itens.forEach(item => { if(!item.roubado && cofre.aberto) desenhaObjeto(vp, item.pos, item.scale, item.tex); });
         }
         requestAnimationFrame(render);
