@@ -73,10 +73,11 @@
 
     <div id="ui">
         Ambiente: <span id="hud-ambiente">EXTERIOR (NOITE)</span><br>
+        Lanterna: <span id="hud-lanterna">DESLIGADA</span><br>
         Ouro no Carro: <span id="hud-itens">0</span>/3<br>
         Mãos: <span id="hud-mao">VAZIAS</span><br>
         Amanhecer em: <span id="hud-tempo" style="color:#ffeb3b">90.0s</span><br>
-        <span style="font-size: 14px; color: #aaa;">[ESC] ou [P] para pausar</span>
+        <span style="font-size: 14px; color: #aaa;">[X] para Lanterna | [ESC] ou [P] para pausar</span>
     </div>
 
     <div id="skip-intro" class="hidden">Para pular a cutscene digite [F]</div>
@@ -117,6 +118,10 @@
             uniform vec3 u_viewPos;  
             uniform bool u_useSolid; 
             uniform vec4 u_solidCol; 
+
+            // Mecânica de Lanterna
+            uniform bool u_flashlightOn;
+            uniform vec3 u_camFront;
             
             out vec4 outColor;
             void main() { 
@@ -142,6 +147,29 @@
                 vec3 ambient = vec3(u_ambientLvl);
                 vec3 result = (ambient + diffuse + specular) * baseColor.rgb;
                 
+                // Spotlight da Lanterna
+                if(u_flashlightOn) {
+                    vec3 lightToFrag = normalize(v_fragPos - u_viewPos);
+                    float theta = dot(lightToFrag, normalize(u_camFront));
+                    
+                    // Cones de luz interno (cutOff) e suave externo (outerCutOff)
+                    float cutOff = 0.95; 
+                    float outerCutOff = 0.90; 
+                    
+                    if(theta > outerCutOff) {
+                        float intensity = clamp((theta - outerCutOff) / (cutOff - outerCutOff), 0.0, 1.0);
+                        float spotDiff = max(dot(norm, -lightToFrag), 0.0);
+                        
+                        float distance = length(u_viewPos - v_fragPos);
+                        float attenuation = 1.0 / (1.0 + 0.04 * distance + 0.005 * distance * distance);
+                        
+                        vec3 spotColor = vec3(1.0, 1.0, 0.9);
+                        vec3 spotLight = spotColor * spotDiff * intensity * attenuation * 2.5; 
+                        
+                        result += spotLight * baseColor.rgb;
+                    }
+                }
+                
                 outColor = vec4(result, baseColor.a); 
             }
         `;
@@ -164,6 +192,9 @@
         const viewPosLoc = gl.getUniformLocation(program, "u_viewPos");
         const useSolidLoc = gl.getUniformLocation(program, "u_useSolid");
         const solidColLoc = gl.getUniformLocation(program, "u_solidCol");
+        
+        const flashLoc = gl.getUniformLocation(program, "u_flashlightOn");
+        const camFrontLoc = gl.getUniformLocation(program, "u_camFront");
 
         const vertices = new Float32Array([-0.5,-0.5, 0.5, 0,0, 0,0,1, 0.5,-0.5, 0.5, 1,0, 0,0,1, 0.5, 0.5, 0.5, 1,1, 0,0,1, -0.5, 0.5, 0.5, 0,1, 0,0,1, -0.5,-0.5,-0.5, 1,0, 0,0,-1, -0.5, 0.5,-0.5, 1,1, 0,0,-1, 0.5, 0.5,-0.5, 0,1, 0,0,-1, 0.5,-0.5,-0.5, 0,0, 0,0,-1, -0.5, 0.5,-0.5, 0,1, 0,1,0, -0.5, 0.5, 0.5, 0,0, 0,1,0, 0.5, 0.5, 0.5, 1,0, 0,1,0, 0.5, 0.5,-0.5, 1,1, 0,1,0, -0.5,-0.5,-0.5, 1,1, 0,-1,0, 0.5,-0.5,-0.5, 0,1, 0,-1,0, 0.5,-0.5, 0.5, 0,0, 0,-1,0, -0.5,-0.5, 0.5, 1,0, 0,-1,0, 0.5,-0.5,-0.5, 1,0, 1,0,0, 0.5, 0.5,-0.5, 1,1, 1,0,0, 0.5, 0.5, 0.5, 0,1, 1,0,0, 0.5,-0.5, 0.5, 0,0, 1,0,0, -0.5,-0.5,-0.5, 0,0, -1,0,0, -0.5,-0.5, 0.5, 1,0, -1,0,0, -0.5, 0.5, 0.5, 1,1, -1,0,0, -0.5, 0.5,-0.5, 0,1, -1,0,0 ]);
         const indices = new Uint16Array([0,1,2, 0,2,3, 4,5,6, 4,6,7, 8,9,10, 8,10,11, 12,13,14, 12,14,15, 16,17,18, 16,18,19, 20,21,22, 20,22,23]);
@@ -370,7 +401,6 @@
         }
 
         const moveisFisica = [
-            // Altura do carro reduzida para 0.75 para grudar perfeito na nova pista vertical
             { id: 'carro_fuga', x: 0, z: 42, y: 0.75, w: 4, d: 8, h: 1.5, tex: texturas.carro_fallback, rot: 0 },
             { x: 0, z: -42.5, y: 0.3, w: 5, d: 5, h: 0.6, tex: texturas.cama, rot: 0 }, 
             { x: 16, z: -40, y: 1.5, w: 4, d: 8, h: 3, tex: texturas.madeira, rot: 0 }, 
@@ -397,29 +427,24 @@
             { id: 1, hinge: [-2, 1.75, -28], width: 4, angle: 0, targetAngle: 0, aberta: false } 
         ];
 
-        // Animação da Porta da Frente
         let portaExt = { angle: 0, targetAngle: 0 };
 
-        // Antigos roubos viraram cenário estático
         let objetosEstaticos = [
             { pos: [-10, 1.6, -11], scale: [2.0, 1.2, 0.2], tex: texturas.tv }, 
             { pos: [-6, 0.85, -42.5], scale: [0.3, 0.05, 0.5], tex: texturas.celular }, 
             { pos: [-16, 1.45, -32], scale: [0.6, 0.05, 0.6], tex: texturas.colar }  
         ];
 
-        // Mecanismo do Cofre
         let cofre = { pos: [-9.5, 1.5, -44.8], angle: 0, targetAngle: 0, aberto: false };
         let tentativasSenha = 0;
         let digitandoSenha = false;
 
-        // Herança dentro do Cofre
         let itens = [
             { pos: [-10.0, 1.0, -44.9], scale: [0.8, 0.5, 0.8], tex: texturas.ouro, roubado: false }, 
             { pos: [-9.0, 1.0, -44.9], scale: [0.8, 0.5, 0.8], tex: texturas.ouro, roubado: false }, 
             { pos: [-9.5, 1.6, -44.9], scale: [0.8, 0.5, 0.8], tex: texturas.ouro, roubado: false }  
         ];
 
-        // Pistas espalhadas pela casa
         let papeis = [
             { pos: [-10, 1.1, -2], texto: "Dica 1: Quanto é 4 + 2 ?" },
             { pos: [10, 1.5, -13], texto: "Dica 2: Quanto é 18 / 3 ?" },
@@ -447,6 +472,7 @@
         let donoDaCasa = { pos: [0, 0.6, -42.0], speed: 0.06, estado: "DORMINDO" }; 
         let posPolicia = [0, 0.0, 12.0]; 
         let animacaoPoliciaAndando = false;
+        let lanternaLigada = false;
 
         let introFase = 0;
         let estadoAnterior = "MENU";
@@ -551,15 +577,12 @@
             timeoutsIntro.forEach(clearTimeout);
             timeoutsIntro = [];
             
-            // Porta principal fechada
             portaExt.targetAngle = 0;
             portaExt.angle = 0;
 
-            // Câmera Panorâmica posicionada do lado de fora acompanhando
             camPos = vec3.fromValues(-10, 8, 25); 
             yaw = -45.0; pitch = -20.0; 
             
-            // O dono agora inicia no meio da rua caminhando
             donoDaCasa.pos = [0, 0.0, 25.0]; 
             donoDaCasa.estado = "CAÇANDO"; 
             
@@ -570,7 +593,6 @@
             document.getElementById("tela-preta-intro").classList.add("hidden");
             document.getElementById("skip-intro").classList.remove("hidden");
 
-            // Legenda da fala na intro EXTERIOR
             uiAviso.innerText = '"Roubei a herança daquele otário, agora é dormir e depois lavar esse dinheiro"'; 
             uiAviso.style.color = "#fff"; 
             uiAviso.classList.remove("hidden");
@@ -583,7 +605,11 @@
             nivelBarulho = 0.0; tempoAmanhecer = 90.0; lastTime = performance.now();
             itemNaMao = false; itensNoCarro = 0; tentativasSenha = 0; cofre.aberto = false; cofre.angle = 0; cofre.targetAngle = 0;
             
-            portaExt.targetAngle = 0; portaExt.angle = 0; // Reseta porta de fora caso pule a cena
+            lanternaLigada = false;
+            document.getElementById("hud-lanterna").innerText = "DESLIGADA";
+            document.getElementById("hud-lanterna").style.color = "#fff";
+
+            portaExt.targetAngle = 0; portaExt.angle = 0;
             let carro = moveisFisica.find(m => m.id === 'carro_fuga');
             if(carro) { carro.x = 0; carro.z = 42; }
             
@@ -608,9 +634,8 @@
             let key = e.key.toLowerCase();
             keys[key] = true; 
 
-            // Pular Intro
             if (estadoJogo === "INTRO" && key === 'f') {
-                introFase = 99; // Força sair das fases normais
+                introFase = 99; 
                 timeoutsIntro.forEach(clearTimeout);
                 timeoutsIntro = [];
                 cofre.aberto = false;
@@ -621,6 +646,14 @@
             }
 
             if (key === 'p' && (estadoJogo === "JOGANDO" || estadoJogo === "INTRO" || estadoJogo === "CUTSCENE" || estadoJogo === "CUTSCENE_POLICIA" || estadoJogo === "CUTSCENE_VITORIA")) document.exitPointerLock();
+            
+            // Controle da Lanterna
+            if (key === 'x' && estadoJogo === "JOGANDO" && playerControlavel && !digitandoSenha) {
+                lanternaLigada = !lanternaLigada;
+                document.getElementById("hud-lanterna").innerText = lanternaLigada ? "LIGADA" : "DESLIGADA";
+                document.getElementById("hud-lanterna").style.color = lanternaLigada ? "#ffeb3b" : "#fff";
+            }
+
             if(estadoJogo === "JOGANDO" && playerControlavel && !digitandoSenha) processarAcaoKeys(e); 
         };
         window.onkeyup = e => keys[e.key.toLowerCase()] = false;
@@ -656,7 +689,6 @@
             }
             
             if(key === 'e') {
-                // 1. Ler Dicas de Papel
                 if (!acaoRealizada && ambiente === "INTERIOR") {
                     for(let p of papeis) {
                         if(vec3.distance(camPos, p.pos) < 2.5) {
@@ -667,7 +699,6 @@
                     }
                 }
 
-                // 2. Tentar abrir o cofre
                 if (!acaoRealizada && ambiente === "INTERIOR" && !cofre.aberto && vec3.distance(camPos, cofre.pos) < 3.5) {
                     digitandoSenha = true;
                     document.exitPointerLock();
@@ -678,7 +709,6 @@
                     acaoRealizada = true;
                 }
 
-                // 3. Coletar Ouro
                 if (!acaoRealizada && ambiente === "INTERIOR" && cofre.aberto && !itemNaMao) {
                     for(let item of itens) { 
                         if(!item.roubado && vec3.distance(camPos, item.pos) < 3.0) { 
@@ -693,7 +723,6 @@
                     }
                 } 
 
-                // 4. Guardar no Carro
                 if (!acaoRealizada && ambiente === "EXTERIOR" && itemNaMao) {
                     let posCarro = [0, 1.7, 42]; 
                     if (vec3.distance(camPos, posCarro) < 6.0) {
@@ -1235,13 +1264,19 @@
                 }
             } else { 
                 gl.clearColor(0.05, 0.05, 0.05, 1.0); 
-                if (ambLoc !== null) gl.uniform1f(ambLoc, donoDaCasa.estado === "DORMINDO" ? 0.5 : 0.6); 
-                if (lightColLoc !== null) gl.uniform3fv(lightColLoc, donoDaCasa.estado !== "DORMINDO" ? [1.0, 0.4, 0.4] : [1.0, 1.0, 0.9]); 
+                // AQUI CONFIGURAMOS A CASA MAIS ESCURA QUANDO ELE DORME (0.15)
+                if (ambLoc !== null) gl.uniform1f(ambLoc, donoDaCasa.estado === "DORMINDO" ? 0.15 : 0.6); 
+                // Também diminuímos a luz pontual geral pra não competir com a lanterna
+                if (lightColLoc !== null) gl.uniform3fv(lightColLoc, donoDaCasa.estado !== "DORMINDO" ? [1.0, 0.4, 0.4] : [0.2, 0.2, 0.3]); 
                 let luzZ = -20 + Math.cos((now || 0) / 1000) * 10;
                 if (lightLoc !== null) gl.uniform3fv(lightLoc, [0, 15.0, luzZ]); 
             }
             
             if (viewPosLoc !== null) gl.uniform3fv(viewPosLoc, camPos);
+
+            // Passa os dados da Lanterna pro Shader
+            if (flashLoc !== null) gl.uniform1i(flashLoc, lanternaLigada ? 1 : 0);
+            if (camFrontLoc !== null) gl.uniform3fv(camFrontLoc, camFront);
 
             gl.enable(gl.CULL_FACE); 
             gl.enable(gl.DEPTH_TEST); 
@@ -1264,10 +1299,11 @@
                 desenhaObjeto(vp, [0, -0.51, 80], [200, 1, 200], texturas.grama);
 
                 // --- PISTA E CALÇADAS CENTRAIS ---
-                // Calçada cobrindo toda a extensão (eixo Z)
-                 desenhaObjeto(vp, [0, 0.01, 104], [16, 0.02, 192], texturas.calcada);
-                // Asfalto no centro da calçada (eixo Z)
+                // Calçada cobrindo a extensão ajustada pra não invadir a grama da casa
+                desenhaObjeto(vp, [0, 0.01, 104], [16, 0.02, 192], texturas.calcada);
+                // Asfalto no centro da calçada
                 desenhaObjeto(vp, [0, 0.02, 104], [192, 0.02, 10], texturas.asfalto, Math.PI/2);
+                
                 // Paredes originais e estrutura externa principal
                 paredes.forEach(p => desenhaObjeto(vp, [p.x, 2.5, p.z], [p.w, 5, p.d], texturas.parede_ext));
                 desenhaObjeto(vp, [0, 0.1, 6.0], [3, 0.1, 2], texturas.madeira, Math.PI/2);
@@ -1360,7 +1396,7 @@
             // --- ROTAÇÃO DONO NA INTRO REESCRITA ---
             let rotYDono = Math.PI / 2; 
             if (estadoJogo === "INTRO") {
-                if (introFase < 10) rotYDono = Math.PI;             // Andando para Z-
+                if (introFase < 10) rotYDono = Math.PI;              // Andando para Z-
                 else if (introFase === 10) rotYDono = -Math.PI/2;   // Andando para X- (esquerda)
                 else if (introFase >= 11 && introFase <= 13) rotYDono = Math.atan2(cofre.pos[0] - donoDaCasa.pos[0], cofre.pos[2] - donoDaCasa.pos[2]); // Olhando pro cofre
                 else if (introFase === 14) rotYDono = Math.PI/2;    // Andando para X+ (direita)
